@@ -1,65 +1,30 @@
 # sudomobile
 
-Backend buat aplikasi mobile customer (member point/saldo, order, promo/discount, dll) — service **terpisah** dari `sudocore2` (ERP) dan `APIANDORDER` (bridge POS), tapi konek **langsung** ke Postgres ERP yang sama (`db_sudocore_dev`), sama pola query-nya kayak `APIANDORDER`.
-
-Stack: [Fiber v3](https://github.com/gofiber/fiber) + [bun](https://bun.uptrace.dev/) (`pgx/v5` sebagai driver, `pgdialect` buat dialect).
-
-## Kenapa terpisah dari APIANDORDER
-
-Semua route `/pos/*` di `APIANDORDER` pakai `BranchTokenAuth` — token per-**branch**, dipegang device (POS/kiosk). Customer mobile app butuh identitas per-**customer** (login, bisa order dari branch manapun, riwayat personal) — beda model auth sepenuhnya, daripada nyisipin auth model kedua di router yang udah ada, dipisah jadi service sendiri.
-
-Ke depannya rencana besar (lihat `../STRUKTUR_BARU/sudocore`) semua domain (erp/pos/mobile/payment) digabung jadi 1 monorepo Go dengan banyak binary (`cmd/erp`, `cmd/mobile`, dst) yang share `internal/`. `sudomobile` ini berdiri sendiri dulu buat sekarang, belum dipindah ke situ.
+Backend buat aplikasi mobile customer (member point/saldo, order, promo/discount, dll).
 
 ## Struktur
 
 ```
 sudomobile/
-├── main.go                          -- entrypoint: load .env, init DB, register routes, listen
+├── main.go              -- entrypoint
 ├── backend/
 │   ├── config/
-│   │   ├── database.go              -- koneksi bun+pgx ke db_sudocore_dev
-│   │   └── app_setting_key.go       -- load APP_SETTING_KEY (.env) buat dekripsi header X-App-Setting
 │   ├── helpers/
-│   │   ├── response.go              -- {code, message, data} response builder
-│   │   └── app_setting_crypto.go    -- AES-256-GCM encrypt/decrypt buat header X-App-Setting
 │   ├── middleware/
-│   │   ├── app_setting.go           -- wajib header X-App-Setting (semua route)
-│   │   └── auth.go                  -- wajib header Authorization: Bearer <token> (route protected), inject member_id
-│   ├── modules/
-│   │   ├── auth/                    -- check_number, request_otp, register, login_otp, login_pin, pin/create, pin/change, pin/reset
-│   │   └── account/                 -- account/me (profil customer yang lagi login)
-│   └── router.go                    -- daftar semua route, group /api
-└── DOKUMENTASI API/                 -- dokumentasi endpoint lengkap, 1 file per endpoint
+│   ├── modules/          -- auth/, account/
+│   └── router.go
+└── DOKUMENTASI API/       -- dokumentasi endpoint, 1 file per endpoint
 ```
-
-`sudomobile` **gak punya migration folder sendiri** — DB-nya satu, sama persis `db_sudocore_dev` punya `sudocore2`. Kalau butuh tabel/kolom baru, migration-nya dibikin & di-apply lewat `sudocore2/cmd/migration`, bukan di sini — ERP tetap satu-satunya pemilik skema (sama pola kayak `APIANDORDER`, yang juga gak punya migration folder sendiri).
-
-## Header wajib
-
-Semua route (termasuk `/api/auth/*`, belum login pun tetep wajib) harus ngirim header `X-App-Setting`, isinya **ciphertext** (bukan plaintext) — AES-256-GCM, key `APP_SETTING_KEY` di `.env` (base64, 32 byte setelah di-decode), format `base64(nonce + ciphertext)`.
-
-Plaintext-nya (sebelum dienkripsi) query-string-style: `db_code=tesmisal&company_id=15`
-
-- `db_code` — wajib ada (non-empty), belum divalidasi ke mana-mana (ditampung, belum diputusin buat apa persisnya).
-- `company_id` — wajib angka, divalidasi eksistensinya ke `master_company`.
-
-`helpers.EncryptAppSetting(key, plaintext)` buat bikin ciphertext-nya (dipake app mobile sebelum kirim, atau buat testing manual), `helpers.DecryptAppSetting(key, ciphertext)` kebalikannya, dipanggil `middleware.AppSetting` tiap request. AES-GCM itu *authenticated* — kalau ciphertext-nya diutak-atik dikit aja, ketauan & ditolak (bukan cuma "gak kebaca").
-
-Nilai yang lolos validasi disimpen ke request context, diambil lewat `middleware.DBCode(c)` / `middleware.CompanyID(c)`. Ini semacam app config per-instalasi (mirip API key), **bukan** identitas customer — identitas customer tetap dari `middleware.Auth` (session token), terpisah.
-
-**Catatan keamanan**: key-nya statis & sama buat semua instalasi app (sementara) — siapapun yang bongkar app mobile-nya (APK/IPA) bisa nemu key-nya. Ini nyegah orang iseng baca/ubah header secara kasual (network sniffing, curl manual), bukan proteksi kelas produksi terhadap orang yang niat reverse-engineer app-nya. Key per-device/provisioning didiskusikan belakangan.
 
 ## Modul & Endpoint
 
-Detail lengkap tiap endpoint (request/response, error case, catatan implementasi) ada di **`DOKUMENTASI API/<NAMA MODUL>/`** — 1 file per endpoint, sama pola kayak `sudocore2`/`APIANDORDER`/`POS`.
+Detail lengkap tiap endpoint (request/response, error case, catatan implementasi) ada di **`DOKUMENTASI API/<NAMA MODUL>/`**.
 
-| Modul | Endpoint | Dokumentasi |
-|---|---|---|
-| **Auth** (publik) | `check_number`, `request_otp`, `register`, `login_otp`, `login_pin` | [`DOKUMENTASI API/AUTH/`](<DOKUMENTASI%20API/AUTH>) |
-| **Auth** (protected) | `pin/create`, `pin/change`, `pin/reset` | [`DOKUMENTASI API/AUTH/`](<DOKUMENTASI%20API/AUTH>) |
-| **Account** (protected) | `account/me` | [`DOKUMENTASI API/ACCOUNT/`](<DOKUMENTASI%20API/ACCOUNT>) |
-
-Convention nomor HP: kode negara **tanpa** tanda `+` (`62812xxxxxxx`) — gak ada normalisasi di server, dikirim apa adanya (lihat dokumentasi `check_number` buat detail).
+| Modul                   | Endpoint                                                            | Dokumentasi                                             |
+| ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Auth** (publik)       | `check_number`, `request_otp`, `register`, `login_otp`, `login_pin` | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
+| **Auth** (protected)    | `pin/create`, `pin/change`, `pin/reset`                             | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
+| **Account** (protected) | `account/me`                                                        | [`DOKUMENTASI API/ACCOUNT/`](DOKUMENTASI%20API/ACCOUNT) |
 
 ## Menjalankan
 
@@ -67,4 +32,4 @@ Convention nomor HP: kode negara **tanpa** tanda `+` (`62812xxxxxxx`) — gak ad
 go run main.go
 ```
 
-Default port `101` (`APP_PORT` di `.env`) — beda dari `sudocore2` (`100`) dan `APIANDORDER` (`99`).
+Default port `101` (`APP_PORT` di `.env`).
