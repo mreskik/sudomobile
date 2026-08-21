@@ -10,7 +10,7 @@ Detail lengkap tiap endpoint (request/response, error case, catatan implementasi
 | ----------------------- | ------------------------------------------------------------------- | ------------------------------------------------------- |
 | **Auth** (publik)       | `check_number`, `request_otp`, `register`, `login_otp`, `login_pin` | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
 | **Auth** (protected)    | `pin/create`, `pin/change`, `pin/reset`                             | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
-| **Account** (protected) | `account/me`                                                        | [`DOKUMENTASI API/ACCOUNT/`](DOKUMENTASI%20API/ACCOUNT) |
+| **Account** (protected) | `account/me`, `account/balance(/history)`, `account/point(/history)` | [`DOKUMENTASI API/ACCOUNT/`](DOKUMENTASI%20API/ACCOUNT) |
 
 ## Menjalankan
 

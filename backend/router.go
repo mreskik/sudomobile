@@ -36,4 +36,8 @@ func RegisterRoutes(app *fiber.App) {
 	accountHandler := account.NewHandler(config.DB)
 	accountRouter := root.Group("/account", middleware.Auth(config.DB))
 	accountRouter.Get("/me", accountHandler.Me)
+	accountRouter.Get("/balance", accountHandler.Balance)
+	accountRouter.Get("/balance/history", accountHandler.BalanceHistory)
+	accountRouter.Get("/point", accountHandler.Point)
+	accountRouter.Get("/point/history", accountHandler.PointHistory)
 }

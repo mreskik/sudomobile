@@ -64,4 +64,4 @@ Semua endpoint balikin bentuk yang sama, **selalu HTTP 200** — sukses/gagal di
 | Modul | Keterangan |
 |---|---|
 | [`AUTH/`](AUTH) | Register, login (OTP & PIN), kelola PIN (create/change/reset) |
-| [`ACCOUNT/`](ACCOUNT) | Profil akun customer yang lagi login |
+| [`ACCOUNT/`](ACCOUNT) | Profil akun, saldo & poin (+riwayat) customer yang lagi login |
