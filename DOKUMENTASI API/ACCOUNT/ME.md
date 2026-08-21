@@ -44,14 +44,14 @@ Authorization: Bearer <token>
 | `phone_number` | string | `master_member.phone_number` | |
 | `email` | string, nullable | `master_member.email` | `register` gak minta field ini — `null` sampai ada fitur lengkapi profil |
 | `gender` | string, nullable | `master_member.gender` | `"male"`/`"female"`, `null` kalau belum diisi |
-| `profile_photo_src` | string, nullable | `master_member.profile_photo_src` | Path foto profil, `null` kalau belum upload |
+| `profile_photo_src` | string, nullable | `master_member.profile_photo_src` | Path foto profil, `null` kalau belum upload. Cara ganti: [UPDATE PHOTO.md](UPDATE%20PHOTO.md) |
 | `member_since` | datetime | alias `master_member.created_at` | Nama field lebih deskriptif dari `created_at` yang kedengeran teknis |
 | `has_pin` | bool | derived, `EXISTS` di `mobile_member_pin` | Dipakai app buat mutusin nunjukin prompt "aktifkan login PIN" atau nyembunyiin opsi "Login pakai PIN" |
 | `tier.level` | number | `master_member.tier_level` | Level tier saat ini (default `1`), diupdate otomatis lewat background job [`membertierevaluation`](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md) di `sudocore2` |
 | `tier.name` | string, nullable | `LEFT JOIN master_member_tier_setting_detail` (match `level`) | Nama tampilan tier (mis. `"Bronze"`). **`null`** kalau admin belum pernah setup level ini di [MASTER MEMBER TIER SETTING.md](../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20MEMBER%20TIER%20SETTING.md) |
 | `tier.style_template` | string, nullable | `LEFT JOIN master_member_tier_setting_detail.style_template` | Buat tampilan (warna/badge tier) — struktur/isinya belum ditentukan, `null` kalau belum diisi |
 
-`tier` dikelompokin jadi 1 objek (bukan `tier_level`/`tier_name`/`tier_style_template` flat) — nama field di dalamnya (`level`/`name`/`style_template`) sengaja disamain persis kolom `master_member_tier_setting_detail`, biar konsisten sama yang udah dijelasin di dokumentasi ERP-nya.
+`tier` dikelompokin jadi 1 objek (bukan `tier_level`/`tier_name`/`tier_style_template` flat) — nama field di dalamnya (`level`/`name`/`style_template`) sengaja disamain persis kolom `master_member_tier_setting_detail`, biar konsisten sama yang udah dijelasin di dokumentasi ERP-nya. Mau daftar **SEMUA** tier (buat roadmap/"road to next tier"), bukan cuma posisi sekarang? Lihat [TIER LIST.md](TIER%20LIST.md).
 
 Kalau belum login / token invalid (ditolak di middleware, sebelum sempat ke handler ini):
 

@@ -7,6 +7,7 @@ import (
 	"sudomobile/backend/modules/auth"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
 // RegisterRoutes: semua endpoint customer mobile app nempel di sini. Beda dari APIANDORDER
@@ -40,4 +41,10 @@ func RegisterRoutes(app *fiber.App) {
 	accountRouter.Get("/balance/history", accountHandler.BalanceHistory)
 	accountRouter.Get("/point", accountHandler.Point)
 	accountRouter.Get("/point/history", accountHandler.PointHistory)
+	accountRouter.Get("/tier-list", accountHandler.TierList)
+	accountRouter.Post("/photo", accountHandler.UpdatePhoto)
+
+	// Static file serving buat foto profil (dan file upload lain di sudomobile ke depannya) --
+	// path storage-nya harus match photoStorageRoot di modules/account/photo_handler.go.
+	app.Get("/storage/*", static.New("./storage"))
 }

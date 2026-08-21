@@ -16,6 +16,8 @@ type Handler interface {
 	Point(c fiber.Ctx) error
 	BalanceHistory(c fiber.Ctx) error
 	PointHistory(c fiber.Ctx) error
+	TierList(c fiber.Ctx) error
+	UpdatePhoto(c fiber.Ctx) error
 }
 
 type handler struct {
