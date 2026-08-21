@@ -1,0 +1,5 @@
+.env
+main.exe
+main.exe~
+tmp/
+*.log
