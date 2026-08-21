@@ -2,20 +2,6 @@
 
 Backend buat aplikasi mobile customer (member point/saldo, order, promo/discount, dll).
 
-## Struktur
-
-```
-sudomobile/
-├── main.go              -- entrypoint
-├── backend/
-│   ├── config/
-│   ├── helpers/
-│   ├── middleware/
-│   ├── modules/          -- auth/, account/
-│   └── router.go
-└── DOKUMENTASI API/       -- dokumentasi endpoint, 1 file per endpoint
-```
-
 ## Modul & Endpoint
 
 Detail lengkap tiap endpoint (request/response, error case, catatan implementasi) ada di **`DOKUMENTASI API/<NAMA MODUL>/`**.
