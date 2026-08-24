@@ -6,6 +6,8 @@ import (
 	"sudomobile/backend/modules/account"
 	"sudomobile/backend/modules/auth"
 	"sudomobile/backend/modules/banner"
+	"sudomobile/backend/modules/branch"
+	"sudomobile/backend/modules/visitpurpose"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -51,6 +53,18 @@ func RegisterRoutes(app *fiber.App) {
 	// Authorization.
 	bannerHandler := banner.NewHandler(config.DB)
 	root.Get("/banner", bannerHandler.GetBanners)
+
+	// PUBLIK -- daftar branch yang nerima online order lewat mobile, dipakai buat misal milih
+	// lokasi pickup sebelum login. Gak di-scope brand_id (2026-08-24, konfirmasi eksplisit).
+	branchHandler := branch.NewHandler(config.DB)
+	root.Get("/branch", branchHandler.GetList)
+
+	// PUBLIK -- daftar visit purpose yang dibolehin muncul di mobile customer app buat 1
+	// branch (branch_id eksplisit di URL, konfirmasi 2026-08-24) -- filter
+	// flag_mobile_customer, mirror Kiosk POS tapi flag beda & branch_id gak implisit.
+	visitPurposeHandler := visitpurpose.NewHandler(config.DB)
+	root.Get("/branch/:branch_id/visit-purpose", visitPurposeHandler.GetList)
+	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id", visitPurposeHandler.GetDetail)
 
 	// PROTECTED -- wajib session token (middleware.Auth), member_id diambil dari situ.
 	protectedAuthRouter := root.Group("/auth", middleware.Auth(config.DB))

@@ -12,6 +12,9 @@ Detail lengkap tiap endpoint (request/response, error case, catatan implementasi
 | **Auth** (protected)    | `pin/create`, `pin/change`, `pin/reset`, `logout`                   | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
 | **Account** (protected) | `account/me` (`GET`+`PUT`), `account/balance(/history)`, `account/point(/history)`, `account/tier-list`, `account/tier-spending`, `account/photo` | [`DOKUMENTASI API/ACCOUNT/`](DOKUMENTASI%20API/ACCOUNT) |
 | **Banner** (publik)     | `banner` -- scoped per `brand_id`                                   | [`DOKUMENTASI API/BANNER/`](DOKUMENTASI%20API/BANNER)   |
+| **Branch** (publik)     | `branch` -- filter flag_online_service_mobile_customer, gak di-scope brand | [`DOKUMENTASI API/BRANCH/`](DOKUMENTASI%20API/BRANCH)   |
+| **Branch** (publik)     | `branch/:branch_id/visit-purpose` -- filter flag_mobile_customer  | [`DOKUMENTASI API/BRANCH/`](DOKUMENTASI%20API/BRANCH)   |
+| **Branch** (publik)     | `branch/:branch_id/visit-purpose/:visit_purpose_id` -- tree menu + pajak + package (selesai 3 tahap) | [`DOKUMENTASI API/BRANCH/`](DOKUMENTASI%20API/BRANCH)   |
 
 ## Menjalankan
 
