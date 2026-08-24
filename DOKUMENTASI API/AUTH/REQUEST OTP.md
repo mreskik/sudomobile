@@ -68,8 +68,8 @@ Kalau `type` bukan `"register"`/`"login"`/`"reset_pin"` (atau kosong):
 { "code": 100, "message": "type wajib \"register\", \"login\", atau \"reset_pin\"", "data": null }
 ```
 
-Kalau masih kena **cooldown** (lihat "Catatan" -- belum 5 menit sejak request OTP terakhir buat
-`phone_number` ini):
+Kalau masih kena **cooldown** (lihat "Catatan" -- udah kepake 3x request bebas dalam siklus ini,
+dan belum 5 menit sejak request terakhir buat `phone_number` ini):
 
 ```json
 {
@@ -85,16 +85,24 @@ Kalau masih kena **cooldown** (lihat "Catatan" -- belum 5 menit sejak request OT
 
 ## Catatan
 
-- **Cooldown 5 menit, GLOBAL per `phone_number`** (2026-08-21) -- bukan per `type`. Sengaja
-  global: kalau di-split per `type`, orang tinggal gonta-ganti `type` (`register`→`login`→
-  `reset_pin`) buat munculin OTP baru tiap kali, efektif ngelewatin limitnya. Gak ada skenario
-  legit yang butuh minta OTP `register` DAN `login` buat nomor yang sama dalam waktu
-  berdekatan juga -- `check_number` udah nentuin duluan mau ke alur mana. Dihitung dari
-  `created_at` **request OTP terakhir** (lintas `type`), gak peduli udah diverifikasi/dipakai
-  atau belum -- ini soal frekuensi request, bukan status OTP-nya. Konstanta `otpCooldown` di
-  `backend/modules/auth/auth_handler.go`, kebetulan nilainya sama kayak `otpExpiry` (5 menit) --
-  efeknya OTP baru cuma bisa diminta kalau OTP lama udah expired juga, jadi gak akan ada 2 OTP
-  valid nempel bareng buat 1 nomor.
+- **Barier: 3x request bebas per siklus, GLOBAL per `phone_number`** (2026-08-24, ganti dari
+  cooldown-tiap-request sebelumnya) -- bukan per `type`. Sengaja global: kalau di-split per
+  `type`, orang tinggal gonta-ganti `type` (`register`→`login`→`reset_pin`) buat munculin OTP
+  baru tiap kali, efektif ngelewatin limitnya.
+  - Request ke-1 & ke-2 dalam 1 siklus **selalu bebas** -- gak ada cek waktu sama sekali,
+    boleh langsung beruntun.
+  - Request ke-3 juga bebas, tapi baris ini jadi **acuan** buat cooldown selanjutnya.
+  - Request ke-4 (dan seterusnya, selama masih 1 siklus) wajib nunggu `otpCooldown` (5 menit)
+    dari request terakhir -- kalau belum lewat, ditolak dengan `retry_after_seconds`.
+  - Begitu cooldown-nya kelewatan (5 menit berlalu sejak request terakhir), **siklus baru
+    dimulai dari 1 lagi** -- BUKAN reset harian/kalender kayak barier ganti foto profil, murni
+    berdasarkan jarak waktu ke request terakhir. Jadi dapet lagi jatah 2x bebas sebelum kena
+    cooldown berikutnya.
+  - Dilacak lewat kolom `request_seq` di `mobile_member_otp` (migration `111`) -- diisi tiap
+    insert baris OTP baru, dibaca dari baris **paling akhir** (`ORDER BY id DESC LIMIT 1`,
+    lintas `type`, gak peduli udah diverifikasi/dipakai atau belum -- ini soal frekuensi
+    request, bukan status OTP-nya). Konstanta `otpFreeRequests` (3) & `otpCooldown` (5 menit)
+    di `backend/modules/auth/auth_handler.go`.
 - **Kode OTP: 4 digit angka** (`"0000"`-`"9999"`, padded), **expired 5 menit**. Disepakati
   segini buat sekarang, gampang diubah lewat konstanta `otpExpiry` di
   `backend/modules/auth/auth_handler.go` kalau nanti mau diganti.
@@ -119,8 +127,8 @@ Kalau masih kena **cooldown** (lihat "Catatan" -- belum 5 menit sejak request OT
   yang masih `expires_at > now()` dan `verified_at IS NULL`, **DAN** `type`-nya cocok. Jadi kalau
   user minta OTP 2x buat `type` yang sama, otomatis cuma yang terakhir yang kepake.
 - Tabel `mobile_member_otp` dibikin di migration `100`, kolom `type` ditambah di migration
-  `101`, value `reset_pin` ditambah ke `CHECK` constraint-nya di migration `106`
-  (`sudocore2/cmd/migration`).
+  `101`, value `reset_pin` ditambah ke `CHECK` constraint-nya di migration `106`, kolom
+  `request_seq` ditambah di migration `111` (`sudocore2/cmd/migration`).
 
 ## Tervalidasi live (2026-08-20)
 
@@ -132,8 +140,9 @@ Kalau masih kena **cooldown** (lihat "Catatan" -- belum 5 menit sejak request OT
   tidak ditemukan atau sudah kedaluwarsa"`, bukti isolasi `type` jalan.
 - Request `type=login`, kode-nya dipake di `login_otp` -- sukses (lihat `LOGIN OTP.md`).
 
-**⚠️ Belum tervalidasi live** (2026-08-21): `type=reset_pin` dan **cooldown 5 menit** -- `CHECK`
-constraint DB buat `reset_pin` udah diupdate & dites langsung lewat `psql` (insert manual
-berhasil), query cooldown juga udah dites langsung ke DB (`SELECT created_at ... ORDER BY id DESC
-LIMIT 1` balik bener). Tapi keduanya belum dicoba lewat request HTTP beneran ke endpoint
-`request_otp`. Baru lolos `go build`/`go vet` dari sisi kode. Update bagian ini kalau udah dites.
+**⚠️ Belum tervalidasi live** (2026-08-24): `type=reset_pin` dan **barier 3x request bebas +
+cooldown 5 menit** -- `CHECK` constraint DB buat `reset_pin` udah diupdate & dites langsung
+lewat `psql` (insert manual berhasil), kolom `request_seq` (migration `111`) juga udah
+diaplikasikan ke DB lewat `psql`. Tapi logic siklusnya belum dicoba lewat request HTTP beneran
+ke endpoint `request_otp`. Baru lolos `go build`/`go vet` dari sisi kode. Update bagian ini
+kalau udah dites.

@@ -11,6 +11,7 @@ Detail lengkap tiap endpoint (request/response, error case, catatan implementasi
 | **Auth** (publik)       | `check_number`, `request_otp`, `register`, `login_otp`, `login_pin` | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
 | **Auth** (protected)    | `pin/create`, `pin/change`, `pin/reset`, `logout`                   | [`DOKUMENTASI API/AUTH/`](DOKUMENTASI%20API/AUTH)       |
 | **Account** (protected) | `account/me` (`GET`+`PUT`), `account/balance(/history)`, `account/point(/history)`, `account/tier-list`, `account/tier-spending`, `account/photo` | [`DOKUMENTASI API/ACCOUNT/`](DOKUMENTASI%20API/ACCOUNT) |
+| **Banner** (publik)     | `banner` -- scoped per `brand_id`                                   | [`DOKUMENTASI API/BANNER/`](DOKUMENTASI%20API/BANNER)   |
 
 ## Menjalankan
 

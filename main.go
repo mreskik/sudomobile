@@ -18,6 +18,7 @@ func main() {
 
 	config.InitDB()
 	config.InitAppSettingKey()
+	config.InitStoragePath()
 
 	app := fiber.New()
 

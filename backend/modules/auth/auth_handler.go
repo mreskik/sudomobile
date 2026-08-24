@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	otpExpiry     = 5 * time.Minute
-	otpCooldown   = 5 * time.Minute
-	sessionExpiry = 30 * 24 * time.Hour
+	otpExpiry       = 5 * time.Minute
+	otpFreeRequests = 3               // jatah request_otp bebas per siklus, lihat RequestOTP()
+	otpCooldown     = 5 * time.Minute // cooldown setelah otpFreeRequests kepake
+	sessionExpiry   = 30 * 24 * time.Hour
 )
 
 type Handler interface {
@@ -122,24 +123,35 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage(`type wajib "register", "login", atau "reset_pin"`))
 	}
 
-	// Cooldown GLOBAL per phone_number (lintas type, bukan per-type) -- gonta-ganti type buat
-	// dapet OTP baru gak boleh ngelewatin limit ini. Dihitung dari created_at request TERAKHIR,
-	// gak peduli udah diverifikasi/dipakai atau belum -- ini soal frekuensi request, bukan
-	// status OTP-nya. Kalau belum pernah minta OTP sama sekali (sql.ErrNoRows), lanjut aja.
-	var lastRequestedAt time.Time
+	// Barier GLOBAL per phone_number (lintas type, bukan per-type) -- gonta-ganti type buat
+	// dapet OTP baru gak boleh ngelewatin limit ini. Bukan cooldown tiap request -- request
+	// ke-1 & ke-2 dalam 1 siklus SELALU bebas (gak ada cek waktu sama sekali). Begitu nyampe
+	// otpFreeRequests (3), baris ke-3 itu jadi acuan cooldown: request ke-4+ wajib nunggu
+	// otpCooldown (5 menit) dari request TERAKHIR. Begitu cooldown-nya kelewatan, siklus baru
+	// dimulai lagi dari request_seq=1 (BUKAN reset harian/kalender) -- jadi dapet lagi jatah 2x
+	// bebas sebelum kena cooldown berikutnya.
+	var last struct {
+		CreatedAt  time.Time `bun:"created_at"`
+		RequestSeq int       `bun:"request_seq"`
+	}
 	err := h.db.NewRaw(
-		`SELECT created_at FROM mobile_member_otp WHERE phone_number = ? ORDER BY id DESC LIMIT 1`,
+		`SELECT created_at, request_seq FROM mobile_member_otp WHERE phone_number = ? ORDER BY id DESC LIMIT 1`,
 		req.PhoneNumber,
-	).Scan(c.Context(), &lastRequestedAt)
+	).Scan(c.Context(), &last)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return c.JSON(res.SetCode(100).SetMessage("gagal cek otp"))
 	}
+
+	nextSeq := 1
 	if err == nil {
-		if remaining := otpCooldown - time.Since(lastRequestedAt); remaining > 0 {
+		if last.RequestSeq < otpFreeRequests {
+			nextSeq = last.RequestSeq + 1
+		} else if remaining := otpCooldown - time.Since(last.CreatedAt); remaining > 0 {
 			return c.JSON(res.SetCode(100).
 				SetMessage("terlalu sering minta otp, coba lagi nanti").
 				SetData(fiber.Map{"retry_after_seconds": int(remaining.Seconds())}))
 		}
+		// else: cooldown udah kelewatan -- siklus baru, nextSeq tetep 1.
 	}
 
 	code, err := generateOTPCode()
@@ -152,6 +164,7 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 		OTPCode:     code,
 		Type:        req.Type,
 		ExpiresAt:   time.Now().Add(otpExpiry),
+		RequestSeq:  nextSeq,
 	}
 	if _, err := h.db.NewInsert().Model(&otp).Exec(c.Context()); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal generate otp"))

@@ -13,13 +13,14 @@ X-App-Setting: <ciphertext base64>
 Isinya **ciphertext**, bukan plaintext — AES-256-GCM, di-encode `base64(nonce + ciphertext)`. Plaintext-nya (sebelum dienkripsi) format query-string:
 
 ```
-db_code=tesmisal&company_id=15
+db_code=tesmisal&company_id=15&brand_id=6
 ```
 
 | Field | Wajib | Keterangan |
 |---|---|---|
 | `db_code` | Ya (non-empty) | Belum divalidasi ke mana-mana saat ini — sekadar ditampung, belum diputusin buat apa persisnya |
 | `company_id` | Ya (angka) | Divalidasi eksistensinya ke `master_company` |
+| `brand_id` | Ya (angka) | 2026-08-24 — divalidasi eksistensinya ke `master_brand`. Dipakai buat scoping data yang brand-specific (misal `master_image_mb_cust`, lihat `MASTER IMAGE MOBILE CUSTOMER.md` di sudocore2), baca lewat `middleware.BrandID(c)` |
 
 **Cara bikin ciphertext-nya**: aplikasi client (mobile app) enkripsi plaintext di atas pakai key `APP_SETTING_KEY` (AES-256-GCM) sebelum kirim request. Key ini **statis, sama buat semua instalasi app** saat ini — nyegah request iseng (curl manual, network sniffing kasual), **bukan** proteksi kelas produksi terhadap reverse-engineering app. Kalau ciphertext-nya diutak-atik dikit aja (bukan hasil enkripsi valid), request **ditolak** (AES-GCM itu *authenticated*, bukan cuma "gak kebaca").
 
@@ -65,3 +66,4 @@ Semua endpoint balikin bentuk yang sama, **selalu HTTP 200** — sukses/gagal di
 |---|---|
 | [`AUTH/`](AUTH) | Register, login (OTP & PIN), kelola PIN (create/change/reset) |
 | [`ACCOUNT/`](ACCOUNT) | Profil akun, saldo & poin (+riwayat), daftar tier customer yang lagi login |
+| [`BANNER/`](BANNER) | Splash, quick action, login sheet, & daftar banner (swipe/popup/promotion/about us) -- scoped per brand |

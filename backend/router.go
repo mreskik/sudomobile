@@ -5,6 +5,7 @@ import (
 	"sudomobile/backend/middleware"
 	"sudomobile/backend/modules/account"
 	"sudomobile/backend/modules/auth"
+	"sudomobile/backend/modules/banner"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
@@ -45,6 +46,12 @@ func RegisterRoutes(app *fiber.App) {
 	authRouter.Post("/login_pin", authHandler.LoginPin)
 	authRouter.Post("/pin/reset", authHandler.ResetPin)
 
+	// PUBLIK -- splash/login-sheet ditampilin sebelum member login, jadi endpoint ini gak
+	// boleh Protected. Scoping brand dari X-App-Setting (middleware.BrandID), bukan
+	// Authorization.
+	bannerHandler := banner.NewHandler(config.DB)
+	root.Get("/banner", bannerHandler.GetBanners)
+
 	// PROTECTED -- wajib session token (middleware.Auth), member_id diambil dari situ.
 	protectedAuthRouter := root.Group("/auth", middleware.Auth(config.DB))
 	protectedAuthRouter.Post("/pin/create", authHandler.CreatePin)
@@ -64,7 +71,9 @@ func RegisterRoutes(app *fiber.App) {
 	accountRouter.Post("/photo", accountHandler.UpdatePhoto)
 	accountRouter.Get("/tier-spending", accountHandler.TierSpending)
 
-	// Static file serving buat foto profil (dan file upload lain di sudomobile ke depannya) --
-	// path storage-nya harus match photoStorageRoot di modules/account/photo_handler.go.
-	app.Get("/storage/*", static.New("./storage"))
+	// Static file serving -- root-nya config.StoragePath (default "./storage" folder sendiri,
+	// atau di-mount ke storage sudocore2 langsung lewat env STORAGE_PATH, lihat
+	// backend/config/storage.go). Path-nya harus tetep match savePhoto() di
+	// modules/account/photo_handler.go.
+	app.Get("/storage/*", static.New(config.StoragePath))
 }

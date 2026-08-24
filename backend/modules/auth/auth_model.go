@@ -20,6 +20,7 @@ type MobileMemberOTP struct {
 	Type        string     `bun:"type,notnull"` // "register" atau "login"
 	ExpiresAt   time.Time  `bun:"expires_at,notnull"`
 	VerifiedAt  *time.Time `bun:"verified_at"`
+	RequestSeq  int        `bun:"request_seq,notnull"` // lihat migration 111 & RequestOTP()
 }
 
 // MobileMemberSession: session token hasil Register/LoginOTP/LoginPin, divalidasi

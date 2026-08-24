@@ -15,14 +15,18 @@ const appSettingHeader = "X-App-Setting"
 const (
 	dbCodeLocalsKey    = "db_code"
 	companyIDLocalsKey = "company_id"
+	brandIDLocalsKey   = "brand_id"
 )
 
 // AppSetting: wajib di SEMUA route (termasuk /api/auth/*, bukan cuma yang udah login) --
 // header X-App-Setting isinya ciphertext AES-256-GCM (lihat helpers.DecryptAppSetting), yang
-// setelah didekripsi bentuknya query-string-style ("db_code=tesmisal&company_id=15"). Sementara
-// cuma company_id yang dipakai jadi key (wajib angka & divalidasi eksistensinya ke
-// master_company) -- db_code SEMENTARA diabaikan (ditampung ke locals kalau ada, tapi gak
-// wajib & gak divalidasi), nunggu jelas db_code itu buat apa.
+// setelah didekripsi bentuknya query-string-style
+// ("db_code=tesmisal&company_id=15&brand_id=24"). company_id & brand_id (2026-08-24) dipakai
+// jadi key (wajib angka & divalidasi eksistensinya ke master_company/master_brand masing-masing)
+// -- db_code SEMENTARA diabaikan (ditampung ke locals kalau ada, tapi gak wajib & gak
+// divalidasi), nunggu jelas db_code itu buat apa. brand_id dibutuhin buat scoping data yang
+// brand-specific (misal master_image_mb_cust, lihat MASTER IMAGE MOBILE CUSTOMER.md di
+// sudocore2) -- beda dari company_id yang udah lebih dulu ada buat scoping company.
 //
 // Response selalu HTTP 200 -- sukses/gagal ditentuin dari `code` di body (0 = sukses, 100 =
 // error), sama convention yang dipakai sudocore2/APIANDORDER, bukan HTTP status code.
@@ -67,8 +71,26 @@ func AppSetting(db *bun.DB, key []byte) fiber.Handler {
 			return c.JSON(res.SetCode(100).SetMessage("company_id tidak ditemukan"))
 		}
 
+		brandIDRaw := values.Get("brand_id")
+		if brandIDRaw == "" {
+			return c.JSON(res.SetCode(100).SetMessage("brand_id wajib diisi di " + appSettingHeader))
+		}
+		brandID, err := strconv.Atoi(brandIDRaw)
+		if err != nil {
+			return c.JSON(res.SetCode(100).SetMessage("brand_id harus berupa angka"))
+		}
+
+		var brandCount int
+		if err := db.NewRaw(`SELECT COUNT(*) FROM master_brand WHERE id = ?`, brandID).Scan(c.Context(), &brandCount); err != nil {
+			return c.JSON(res.SetCode(100).SetMessage("gagal validasi brand_id"))
+		}
+		if brandCount == 0 {
+			return c.JSON(res.SetCode(100).SetMessage("brand_id tidak ditemukan"))
+		}
+
 		c.Locals(dbCodeLocalsKey, dbCode)
 		c.Locals(companyIDLocalsKey, companyID)
+		c.Locals(brandIDLocalsKey, brandID)
 		return c.Next()
 	}
 }
@@ -82,5 +104,10 @@ func DBCode(c fiber.Ctx) string {
 
 func CompanyID(c fiber.Ctx) int {
 	id, _ := c.Locals(companyIDLocalsKey).(int)
+	return id
+}
+
+func BrandID(c fiber.Ctx) int {
+	id, _ := c.Locals(brandIDLocalsKey).(int)
 	return id
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"sudomobile/backend/config"
 	"sudomobile/backend/helpers"
 	"sudomobile/backend/middleware"
 
@@ -16,10 +17,17 @@ import (
 )
 
 const (
-	photoStorageRoot = "storage/uploads/images"
-	maxPhotoSize     = 2 * 1024 * 1024 // 2MB -- sama persis konvensi maxImageSize di sudocore2 (backend/modules/upload/upload_service.go)
-	maxPhotoPerDay   = 3
+	maxPhotoSize   = 2 * 1024 * 1024 // 2MB -- sama persis konvensi maxImageSize di sudocore2 (backend/modules/upload/upload_service.go)
+	maxPhotoPerDay = 3
 )
+
+// photoStorageRoot: subfolder tempat foto profil disimpen, RELATIF ke config.StoragePath --
+// "uploads/images" biar strukturnya identik sama upload_service.go sudocore2
+// (storage/uploads/images/<uuid>.<ext>), disengaja biar bisa numpang di storage yang sama
+// (lihat backend/config/storage.go) tanpa perlu subfolder terpisah/rename apa-apa.
+func photoStorageRoot() string {
+	return filepath.Join(config.StoragePath, "uploads", "images")
+}
 
 var allowedPhotoExt = map[string]bool{
 	".jpg": true, ".jpeg": true, ".png": true, ".webp": true, ".gif": true,
@@ -109,15 +117,21 @@ func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {
 		return "", err
 	}
 
-	if err := os.MkdirAll(photoStorageRoot, 0755); err != nil {
+	root := photoStorageRoot()
+	if err := os.MkdirAll(root, 0755); err != nil {
 		return "", err
 	}
 
 	filename := id.String() + ext
-	dest := filepath.Join(photoStorageRoot, filename)
+	dest := filepath.Join(root, filename)
 	if err := c.SaveFile(fh, dest); err != nil {
 		return "", err
 	}
 
-	return "/" + filepath.ToSlash(dest), nil
+	// URL yang dibalikin (disimpen ke DB) SENGAJA dibangun terpisah dari dest (path fisik di
+	// disk) -- dest bisa aja nunjuk keluar folder ini (config.StoragePath = "../sudocore2/storage"
+	// pas storage digabung), tapi klien selalu akses lewat route "/storage/*" yang sama gak
+	// peduli StoragePath fisiknya di mana. Kalau ikutan filepath.ToSlash(dest), path
+	// "../sudocore2/storage/..." bakal bocor jadi URL yang salah.
+	return "/storage/uploads/images/" + filename, nil
 }
