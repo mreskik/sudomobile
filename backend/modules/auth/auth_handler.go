@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"sudomobile/backend/helpers"
@@ -28,6 +29,7 @@ type Handler interface {
 	ChangePin(c fiber.Ctx) error
 	ResetPin(c fiber.Ctx) error
 	LoginPin(c fiber.Ctx) error
+	Logout(c fiber.Ctx) error
 }
 
 type handler struct {
@@ -435,4 +437,28 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 			HasPin:      memberHasPin,
 		},
 	}))
+}
+
+// Logout: hapus session yang lagi dipakai (token dari header Authorization request ini) --
+// SATU device doang, bukan semua session milik member (sama filosofi kayak ResetPin: device
+// lain yang masih login tetep login, gak ke-revoke ikut-ikutan). Hard delete, bukan soft
+// delete/revoked_at -- konsisten sama gaya modul lain di service ini yang belum butuh audit
+// trail buat tabel session.
+//
+// PROTECTED (middleware.Auth) -- tapi di sini butuh TOKEN mentahnya sendiri (bukan cuma
+// member_id yang udah divalidasi & disimpen middleware ke locals), jadi header Authorization
+// di-parse ulang di sini. middleware.Auth udah mastiin token ini valid sebelum sampai ke
+// handler, jadi gak perlu validasi ulang -- tinggal delete baris yang match.
+func (h *handler) Logout(c fiber.Ctx) error {
+	res := helpers.NewResponse()
+
+	token := strings.TrimPrefix(c.Get("Authorization"), "Bearer ")
+
+	if _, err := h.db.NewRaw(
+		`DELETE FROM mobile_member_session WHERE token = ?`, token,
+	).Exec(c.Context()); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal logout"))
+	}
+
+	return c.JSON(res.Success())
 }

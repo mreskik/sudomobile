@@ -49,6 +49,7 @@ func RegisterRoutes(app *fiber.App) {
 	protectedAuthRouter := root.Group("/auth", middleware.Auth(config.DB))
 	protectedAuthRouter.Post("/pin/create", authHandler.CreatePin)
 	protectedAuthRouter.Post("/pin/change", authHandler.ChangePin)
+	protectedAuthRouter.Post("/logout", authHandler.Logout)
 
 	// PROTECTED -- profil akun customer yang lagi login.
 	accountHandler := account.NewHandler(config.DB)
