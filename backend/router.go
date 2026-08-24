@@ -7,6 +7,7 @@ import (
 	"sudomobile/backend/modules/auth"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/static"
 )
 
@@ -14,9 +15,25 @@ import (
 // (/pos/*, BranchTokenAuth per-device), semua route di sini scoped ke 1 customer
 // (master_member), auth-nya middleware.Auth (session token hasil Register/LoginOTP/LoginPin).
 func RegisterRoutes(app *fiber.App) {
-	// AppSetting dipasang PALING LUAR -- wajib di semua route termasuk /api/auth/*
-	// (belum login pun app-nya tetep harus ngirim header X-App-Setting, itu app config bukan
-	// identitas customer). Lihat middleware/app_setting.go.
+	// CORS dipasang GLOBAL di app (bukan di-scope ke grup /api doang) -- nyakup SEMUA route
+	// termasuk /storage/* (static file foto profil) juga, gak cuma /api/*. Dipasang paling
+	// awal sebelum apapun -- preflight request (OPTIONS) dari browser gak bakal nyertain header
+	// custom (X-App-Setting/Authorization), jadi CORS-nya harus udah jawab duluan sebelum
+	// request itu sempat ditolak middleware lain manapun. Config disamain sama konvensi
+	// sudocore2 (backend/routes/backend_routes.go): buka semua origin, gak pakai credentials
+	// (cookie/session browser) -- auth-nya lewat Bearer token di header, bukan cookie, jadi
+	// AllowCredentials gak relevan di sini.
+	//
+	// AllowOrigins di Fiber v3 formatnya []string (beda dari v2 yang string tunggal
+	// "*" dipisah koma) -- "*" di elemen manapun berarti semua origin diizinkan.
+	app.Use(cors.New(cors.Config{
+		AllowOrigins:     []string{"*"},
+		AllowCredentials: false,
+	}))
+
+	// AppSetting wajib di semua route termasuk /api/auth/* (belum login pun app-nya tetep
+	// harus ngirim header X-App-Setting, itu app config bukan identitas customer). Lihat
+	// middleware/app_setting.go.
 	root := app.Group("/api", middleware.AppSetting(config.DB, config.AppSettingKey))
 
 	authHandler := auth.NewHandler(config.DB)
@@ -37,12 +54,14 @@ func RegisterRoutes(app *fiber.App) {
 	accountHandler := account.NewHandler(config.DB)
 	accountRouter := root.Group("/account", middleware.Auth(config.DB))
 	accountRouter.Get("/me", accountHandler.Me)
+	accountRouter.Put("/me", accountHandler.UpdateMe)
 	accountRouter.Get("/balance", accountHandler.Balance)
 	accountRouter.Get("/balance/history", accountHandler.BalanceHistory)
 	accountRouter.Get("/point", accountHandler.Point)
 	accountRouter.Get("/point/history", accountHandler.PointHistory)
 	accountRouter.Get("/tier-list", accountHandler.TierList)
 	accountRouter.Post("/photo", accountHandler.UpdatePhoto)
+	accountRouter.Get("/tier-spending", accountHandler.TierSpending)
 
 	// Static file serving buat foto profil (dan file upload lain di sudomobile ke depannya) --
 	// path storage-nya harus match photoStorageRoot di modules/account/photo_handler.go.

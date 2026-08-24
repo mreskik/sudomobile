@@ -191,6 +191,19 @@ type memberResponse struct {
 	Code        string `json:"code"`
 	Name        string `json:"name"`
 	PhoneNumber string `json:"phone_number"`
+	HasPin      bool   `json:"has_pin"`
+}
+
+// hasPin: dipakai bareng Register/LoginOTP/LoginPin/ResetPin buat ngisi memberResponse.HasPin --
+// sama query persis kayak account.Me() (EXISTS ke mobile_member_pin). Duplikat query sengaja
+// (bukan import cross-package) -- auth & account itu module terpisah dalam 1 binary yang sama,
+// belum ada shared package internal buat query kecil kayak gini.
+func hasPin(ctx context.Context, db bun.IDB, memberID int64) (bool, error) {
+	var has bool
+	err := db.NewRaw(
+		`SELECT EXISTS(SELECT 1 FROM mobile_member_pin WHERE member_id = ?)`, memberID,
+	).Scan(ctx, &has)
+	return has, err
 }
 
 type sessionResponse struct {
@@ -302,6 +315,7 @@ func (h *handler) Register(c fiber.Ctx) error {
 			Code:        member.Code,
 			Name:        member.Name,
 			PhoneNumber: member.PhoneNumber,
+			HasPin:      false, // member baru daftar -- mustahil udah punya PIN, gak perlu query
 		},
 	}))
 }
@@ -309,6 +323,23 @@ func (h *handler) Register(c fiber.Ctx) error {
 type loginOTPRequest struct {
 	PhoneNumber string `json:"phone_number"`
 	OTP         string `json:"otp"`
+}
+
+// loginOTPMemberResponse/loginOTPResponse: struct RESPONSE SENDIRI (2026-08-21), gak share
+// memberResponse/sessionResponse kayak Register/LoginPin/ResetPin -- sengaja dipisah karena
+// has_pin di endpoint ini SEMANTIKNYA beda (beneran di-query, bisa true/false), sementara di
+// 3 endpoint lain nilainya selalu ketebak/literal (lihat komentar di masing-masing handler).
+type loginOTPMemberResponse struct {
+	ID          int64  `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	PhoneNumber string `json:"phone_number"`
+	HasPin      bool   `json:"has_pin"`
+}
+
+type loginOTPResponse struct {
+	Token  string                 `json:"token"`
+	Member loginOTPMemberResponse `json:"member"`
 }
 
 // LoginOTP: login pakai OTP buat nomor yang UDAH kedaftar -- kebalikan Register (gak ada
@@ -387,13 +418,21 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
 	}
 
-	return c.JSON(res.Success().SetData(sessionResponse{
+	// beda dari Register/LoginPin/ResetPin -- login lewat OTP gak ngewajibin punya PIN, jadi
+	// has_pin di sini beneran bisa true atau false, wajib dicek, gak bisa diasumsikan.
+	memberHasPin, err := hasPin(c.Context(), h.db, member.ID)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal cek status pin"))
+	}
+
+	return c.JSON(res.Success().SetData(loginOTPResponse{
 		Token: token,
-		Member: memberResponse{
+		Member: loginOTPMemberResponse{
 			ID:          member.ID,
 			Code:        member.Code,
 			Name:        member.Name,
 			PhoneNumber: member.PhoneNumber,
+			HasPin:      memberHasPin,
 		},
 	}))
 }

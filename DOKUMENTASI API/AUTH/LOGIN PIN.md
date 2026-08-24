@@ -32,11 +32,14 @@ POST /api/auth/login_pin
       "id": 22,
       "code": "MOB0001",
       "name": "Test 4Step",
-      "phone_number": "62899888712345"
+      "phone_number": "62899888712345",
+      "has_pin": true
     }
   }
 }
 ```
+
+`member.has_pin` (2026-08-21) -- selalu `true` di sini (kalau berhasil login pakai PIN, otomatis udah punya PIN). Sekadar konsisten sama bentuk response endpoint auth lain (`register`/`login_otp`/`pin/reset`) yang juga punya field ini.
 
 Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
 

@@ -25,7 +25,7 @@ func main() {
 
 	port := os.Getenv("APP_PORT")
 	if port == "" {
-		port = "101"
+		port = "96"
 	}
 
 	log.Fatal(app.Listen("0.0.0.0:" + port))

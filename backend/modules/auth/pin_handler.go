@@ -221,6 +221,7 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 			Code:        member.Code,
 			Name:        member.Name,
 			PhoneNumber: member.PhoneNumber,
+			HasPin:      true, // baru aja set/timpa PIN-nya lewat request ini -- mustahil false
 		},
 	}))
 }
@@ -295,6 +296,7 @@ func (h *handler) LoginPin(c fiber.Ctx) error {
 			Code:        member.Code,
 			Name:        member.Name,
 			PhoneNumber: member.PhoneNumber,
+			HasPin:      true, // baru aja login PAKAI PIN-nya -- mustahil false
 		},
 	}))
 }

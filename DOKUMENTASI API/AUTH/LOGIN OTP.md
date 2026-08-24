@@ -34,7 +34,8 @@ Wajib header `X-App-Setting`, sama kayak semua route lain di service ini.
       "id": 22,
       "code": "MOB0001",
       "name": "Test 4Step",
-      "phone_number": "62899888712345"
+      "phone_number": "62899888712345",
+      "has_pin": false
     }
   }
 }
@@ -44,6 +45,11 @@ Wajib header `X-App-Setting`, sama kayak semua route lain di service ini.
   `mobile_member_session`, bukan reuse token lama -- tiap login = session baru).
 - `member` -- data member yang **udah ada**, gak berubah field-nya di sini (login doang, bukan
   update profile).
+- `member.has_pin` (2026-08-21) -- `true`/`false`, `EXISTS` ke `mobile_member_pin` (sama query
+  dipakai `account/me`). **Beda dari `register`/`login_pin`/`pin/reset`** (yang nilainya udah
+  pasti ketebak) -- login lewat OTP **gak** ngewajibin punya PIN, jadi field ini di sini
+  beneran bisa `true` **atau** `false`, wajib dicek beneran ke DB, gak bisa diasumsikan.
+  Dipakai app buat mutusin nunjukin prompt "aktifkan login PIN" abis login.
 
 Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
 
@@ -60,6 +66,12 @@ Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
   `verified_at`, insert session) -- bedanya cuma gak ada insert `master_member` (member-nya
   udah ada), dan gak ada `name` di request.
 - OTP-nya WAJIB `type='login'` -- lihat `REQUEST OTP.md` soal isolasi `type`.
+- **Struct response sendiri** (`loginOTPResponse`/`loginOTPMemberResponse`, 2026-08-21) --
+  bentuk JSON-nya kebetulan identik sama `register`/`login_pin`/`pin/reset`, tapi endpoint ini
+  gak share `sessionResponse`/`memberResponse` kayak 3 lainnya. Alasannya: `has_pin` di sini
+  semantiknya beda (beneran di-query, bisa berubah-ubah), sementara di 3 endpoint lain nilainya
+  selalu ketebak/literal -- dipisah biar tiap handler jelas alasannya sendiri-sendiri, gak
+  numpang di struct generik yang assumption-nya beda-beda per pemakai.
 
 ## Tervalidasi live (2026-08-20)
 

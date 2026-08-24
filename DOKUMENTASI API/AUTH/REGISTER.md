@@ -37,11 +37,14 @@ Wajib header `X-App-Setting`, sama kayak semua route lain di service ini.
       "id": 20,
       "code": "MOB0001",
       "name": "Budi Testing",
-      "phone_number": "62899888700001"
+      "phone_number": "62899888700001",
+      "has_pin": false
     }
   }
 }
 ```
+
+- `member.has_pin` (2026-08-21) -- selalu `false` di sini, gak nge-query DB (member baru aja dibuat, mustahil udah punya PIN). Sekadar konsisten sama bentuk response endpoint auth lain (`login_otp`/`login_pin`/`pin/reset`) yang juga punya field ini.
 
 - `token` -- session token, umur **30 hari** dari sekarang (`mobile_member_session.expires_at`).
   Dipake buat header auth di endpoint yang butuh login (belum ada -- `CustomerAuth` middleware
