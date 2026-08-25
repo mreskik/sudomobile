@@ -6,6 +6,7 @@ import (
 
 	"sudomobile/backend"
 	"sudomobile/backend/config"
+	"sudomobile/backend/modules/orderexpiry"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/joho/godotenv"
@@ -19,6 +20,10 @@ func main() {
 	config.InitDB()
 	config.InitAppSettingKey()
 	config.InitStoragePath()
+	config.InitPaymentGatewayEndpoint()
+
+	// Background job -- lihat DOKUMENTASI BACKGROUND JOB/POLA UMUM.md.
+	go orderexpiry.RunLoop()
 
 	app := fiber.New()
 

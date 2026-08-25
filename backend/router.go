@@ -6,7 +6,11 @@ import (
 	"sudomobile/backend/modules/account"
 	"sudomobile/backend/modules/auth"
 	"sudomobile/backend/modules/banner"
+	"sudomobile/backend/modules/bestseller"
 	"sudomobile/backend/modules/branch"
+	"sudomobile/backend/modules/order"
+	"sudomobile/backend/modules/paymentmethod"
+	"sudomobile/backend/modules/promo"
 	"sudomobile/backend/modules/visitpurpose"
 
 	"github.com/gofiber/fiber/v3"
@@ -66,11 +70,58 @@ func RegisterRoutes(app *fiber.App) {
 	root.Get("/branch/:branch_id/visit-purpose", visitPurposeHandler.GetList)
 	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id", visitPurposeHandler.GetDetail)
 
+	// PUBLIK -- daftar payment method yang bisa dipakai buat 1 branch+visit_purpose (gateway-only,
+	// konfirmasi 2026-08-24). Nested di bawah visit-purpose karena scoping-nya sama.
+	paymentMethodHandler := paymentmethod.NewHandler(config.DB)
+	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id/payment-method", paymentMethodHandler.GetList)
+
+	// PUBLIK -- best seller, sumber data mb_order/mb_order_detail DOANG (bukan gabung POS,
+	// 2026-08-25 konfirmasi eksplisit), 30 hari terakhir, cuma order status='paid'. 3 endpoint
+	// beda scope -- makin sempit scope-nya, makin lengkap datanya (harga cuma ada di scope
+	// branch+visit_purpose, karena menu_template_id baru deterministik di situ). Lihat
+	// DOKUMENTASI API/MENU/GET BEST SELLER.md.
+	bestSellerHandler := bestseller.NewHandler(config.DB)
+	root.Get("/menu/best-seller", bestSellerHandler.GetGlobal)
+	root.Get("/branch/:branch_id/best-seller", bestSellerHandler.GetByBranch)
+	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id/best-seller", bestSellerHandler.GetByVisitPurpose)
+
+	// PROTECTED -- daftar promo yang eligible buat 1 branch+visit_purpose+member yang login
+	// (filter member_type butuh identitas member). Nested di bawah visit-purpose, sama alasan
+	// scoping kayak payment-method. Lihat DOKUMENTASI API/ORDER/KETENTUAN PROMO.md.
+	promoHandler := promo.NewHandler(config.DB)
+	promoRouter := root.Group("/branch/:branch_id/visit-purpose/:visit_purpose_id/promo", middleware.Auth(config.DB))
+	promoRouter.Get("", promoHandler.GetList)
+
 	// PROTECTED -- wajib session token (middleware.Auth), member_id diambil dari situ.
 	protectedAuthRouter := root.Group("/auth", middleware.Auth(config.DB))
 	protectedAuthRouter.Post("/pin/create", authHandler.CreatePin)
 	protectedAuthRouter.Post("/pin/change", authHandler.ChangePin)
 	protectedAuthRouter.Post("/logout", authHandler.Logout)
+
+	// PROTECTED (2026-08-24, digeser dari publik) -- preview breakdown harga/pajak SEBELUM
+	// order beneran disubmit, baca-only (gak insert apa pun ke mb_order*). Wajib login karena
+	// validasi promo butuh identitas member (member_type_id buat master_promo_type_members,
+	// saldo poin buat min_point_amount). Body sama persis kayak yang dipakai POST
+	// /api/order/create-order.
+	orderHandler := order.NewHandler(config.DB)
+	orderRouter := root.Group("/order", middleware.Auth(config.DB))
+	orderRouter.Post("/calculate", orderHandler.Calculate)
+	// PROTECTED -- save order beneran (insert mb_order*) + trigger payment gateway (service
+	// `payment`, dev/payment/) dalam 1 call. Lihat DOKUMENTASI API/ORDER/CREATE ORDER.md.
+	orderRouter.Post("/create-order", orderHandler.Create)
+	// PROTECTED -- polling status pembayaran (live-check ke service `payment`), finalisasi
+	// mb_order_payment pas settlement, sinkronin mb_order.status pas expired. Lihat
+	// DOKUMENTASI API/ORDER/PAYMENT STATUS.md.
+	orderRouter.Get("/:order_number/payment-status", orderHandler.CheckPaymentStatus)
+	// PROTECTED -- batalin order SEBELUM bayar (race-guard aware, lihat DOKUMENTASI
+	// API/ORDER/CANCEL ORDER.md).
+	orderRouter.Post("/:order_number/cancel", orderHandler.CancelOrder)
+	// PROTECTED -- riwayat order milik member yang login. Lihat DOKUMENTASI
+	// API/ORDER/ORDER HISTORY.md.
+	orderRouter.Get("/history", orderHandler.GetHistory)
+	// PROTECTED -- detail lengkap 1 order (breakdown item + QR ulang kalau masih pending).
+	// Lihat DOKUMENTASI API/ORDER/ORDER DETAIL.md.
+	orderRouter.Get("/:order_number", orderHandler.GetDetail)
 
 	// PROTECTED -- profil akun customer yang lagi login.
 	accountHandler := account.NewHandler(config.DB)

@@ -67,3 +67,7 @@ Semua endpoint balikin bentuk yang sama, **selalu HTTP 200** — sukses/gagal di
 | [`AUTH/`](AUTH) | Register, login (OTP & PIN), kelola PIN (create/change/reset) |
 | [`ACCOUNT/`](ACCOUNT) | Profil akun, saldo & poin (+riwayat), daftar tier customer yang lagi login |
 | [`BANNER/`](BANNER) | Splash, quick action, login sheet, & daftar banner (swipe/popup/promotion/about us) -- scoped per brand |
+| [`MENU/`](MENU) | Branch, visit purpose, tree menu + harga + pajak + package, payment method, best seller |
+| [`ORDER/`](ORDER) | Promo, calculate (preview), create order, payment status, cancel, history, detail |
+
+**Alur Menu → Order lengkap** (urutan pakai endpoint, cart di sisi client, state order, keterbatasan yang perlu diketahui FE): lihat [`PANDUAN FRONTEND ORDER & MENU.md`](PANDUAN%20FRONTEND%20ORDER%20%26%20MENU.md).

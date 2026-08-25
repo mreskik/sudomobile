@@ -1,10 +1,10 @@
 package visitpurpose
 
 import (
-	"context"
 	"strconv"
 
 	"sudomobile/backend/helpers"
+	"sudomobile/backend/pricing"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/uptrace/bun"
@@ -67,19 +67,6 @@ func (h *handler) GetList(c fiber.Ctx) error {
 	return c.JSON(res.Success().SetData(list))
 }
 
-// visitPurposeConfig: hasil resolveVisitPurposeConfig() -- config level VISIT PURPOSE (bukan
-// per item): menu_template_id + 3 tax_id (service_charge/vat/pb1, FK ke master_tax) +
-// order_fee. service_charge/vat/pb1 nilainya bisa NULL atau 0 -- dua-duanya berarti "gak ada
-// pajak jenis itu", sama persis interpretasi POS (MenuServices.php baris 220-241).
-type visitPurposeConfig struct {
-	MenuTemplateID int64   `bun:"menu_template_id"`
-	ServiceCharge  *int64  `bun:"service_charge"`
-	Vat            *int64  `bun:"vat"`
-	Pb1            *int64  `bun:"pb1"`
-	OrderFee       *string `bun:"order_fee"`
-	InclusivePrice bool    `bun:"inclusive_price"`
-}
-
 type menuItemRow struct {
 	CategoryID      int64   `bun:"category_id"`
 	CategoryName    string  `bun:"category_name"`
@@ -97,39 +84,16 @@ type menuItemRow struct {
 }
 
 type menuItem struct {
-	ItemID      int64          `json:"item_id"`
-	ItemCode    string         `json:"item_code"`
-	ItemName    string         `json:"item_name"`
-	ImageSrc    *string        `json:"image_src"`
-	IconSrc     *string        `json:"icon_src"`
-	Price       string         `json:"price"`
-	TaxType     string         `json:"tax_type"`
-	TaxID       *int64         `json:"tax_id"`
-	TaxRate     *string        `json:"tax_rate"`
-	PackageList []packageGroup `json:"package_list"`
-}
-
-// packageGroup/packageSubItem: TAHAP 3 (2026-08-24) -- sebagian item punya "package" (customer
-// wajib/boleh milih sub-item dari 1+ grup, misal grup "VARIAN" pilih 1 dari 2 varian rasa).
-// Struktur & nama field SENGAJA niru pola POS (MenuServices.php packageList/menuPackageList),
-// snake_case-in doang -- lihat "Catatan penting" di dokumentasi buat sumber tabelnya.
-type packageSubItem struct {
-	MenuPackageID int64   `json:"menu_package_id"`
-	ItemID        int64   `json:"item_id"`
-	ItemName      string  `json:"item_name"`
-	Price         string  `json:"price"`
-	IconSrc       *string `json:"icon_src"`
-	TaxType       string  `json:"tax_type"`
-	TaxID         *int64  `json:"tax_id"`
-	TaxRate       *string `json:"tax_rate"`
-}
-
-type packageGroup struct {
-	PackageID       int64            `json:"package_id"`
-	PackageName     string           `json:"package_name"`
-	MinQty          int64            `json:"min_qty"`
-	MaxQty          int64            `json:"max_qty"`
-	MenuPackageList []packageSubItem `json:"menu_package_list"`
+	ItemID      int64                  `json:"item_id"`
+	ItemCode    string                 `json:"item_code"`
+	ItemName    string                 `json:"item_name"`
+	ImageSrc    *string                `json:"image_src"`
+	IconSrc     *string                `json:"icon_src"`
+	Price       string                 `json:"price"`
+	TaxType     string                 `json:"tax_type"`
+	TaxID       *int64                 `json:"tax_id"`
+	TaxRate     *string                `json:"tax_rate"`
+	PackageList []pricing.PackageGroup `json:"package_list"`
 }
 
 type menuSubcategory struct {
@@ -201,7 +165,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
 	}
 
-	cfg, err := resolveVisitPurposeConfig(c.Context(), h.db, branchID, visitPurposeID)
+	cfg, err := pricing.ResolveVisitPurposeConfig(c.Context(), h.db, branchID, visitPurposeID)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
 	}
@@ -209,7 +173,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("visit purpose tidak ditemukan"))
 	}
 
-	taxRates, err := fetchTaxRates(c.Context(), h.db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)
+	taxRates, err := pricing.FetchTaxRates(c.Context(), h.db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data pajak"))
 	}
@@ -239,7 +203,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data menu"))
 	}
 
-	packages, err := fetchPackages(c.Context(), h.db, itemIDsOf(rows), cfg, taxRates)
+	packages, err := pricing.FetchPackages(c.Context(), h.db, itemIDsOf(rows), cfg, taxRates)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data package"))
 	}
@@ -249,11 +213,11 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		MenuTemplateID:    cfg.MenuTemplateID,
 		FlagInclusiveTax:  cfg.InclusivePrice,
 		ServiceCharge:     cfg.ServiceCharge,
-		ServiceChargeRate: taxRates.rate(cfg.ServiceCharge),
+		ServiceChargeRate: taxRates.Rate(cfg.ServiceCharge),
 		Vat:               cfg.Vat,
-		VatRate:           taxRates.rate(cfg.Vat),
+		VatRate:           taxRates.Rate(cfg.Vat),
 		Pb1:               cfg.Pb1,
-		Pb1Rate:           taxRates.rate(cfg.Pb1),
+		Pb1Rate:           taxRates.Rate(cfg.Pb1),
 		OrderFee:          cfg.OrderFee,
 		Categories:        buildMenuTree(rows, cfg, taxRates, packages),
 	}))
@@ -273,188 +237,17 @@ func itemIDsOf(rows []menuItemRow) []int64 {
 	return ids
 }
 
-// resolveVisitPurposeConfig: nil (bukan error) kalau visit purpose-nya gak ketemu/gak cocok
-// scope -- pemanggil yang mutusin itu "tidak ditemukan", biar bedain dari error DB beneran.
-// Gabung 2 lookup (master_branch_visit_purpose + master_pricelist.inclusive_price) jadi 1
-// query lewat JOIN, biar gak nambah round-trip.
-func resolveVisitPurposeConfig(ctx context.Context, db *bun.DB, branchID, visitPurposeID int) (*visitPurposeConfig, error) {
-	var cfg visitPurposeConfig
-	err := db.NewRaw(`
-		SELECT bvp.menu_template_id, bvp.service_charge, bvp.vat, bvp.pb1, bvp.order_fee,
-			COALESCE(mp.inclusive_price, false) AS inclusive_price
-		FROM master_branch_visit_purpose bvp
-		LEFT JOIN master_pricelist mp ON mp.id = bvp.menu_template_id
-		WHERE bvp.branch_id = ? AND bvp.visit_purpose_id = ? AND bvp.flag_mobile_customer = true AND bvp.is_active = true
-	`, branchID, visitPurposeID).Scan(ctx, &cfg)
-	if err != nil {
-		if err.Error() == "sql: no rows in result set" {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// taxRateMap: tax_id -> rate (string, numeric(10,2) apa adanya dari DB). taxIDOrNil == nil
-// ATAU nilainya 0 -> dianggap "gak ada pajak", rate() balikin nil TANPA nyari ke map (0 emang
-// gak pernah di-query ke fetchTaxRates, lihat di bawah).
-type taxRateMap map[int64]string
-
-func (m taxRateMap) rate(taxID *int64) *string {
-	if taxID == nil || *taxID == 0 {
-		return nil
-	}
-	if rate, ok := m[*taxID]; ok {
-		return &rate
-	}
-	return nil
-}
-
-// fetchTaxRates: query master_tax SEKALI buat semua tax_id yang relevan (service_charge/vat/pb1
-// visit purpose ini), bukan 3x query terpisah. tax_id yang nil/0 disaring duluan, gak ikut
-// di-query (0/nil emang bukan id beneran).
-func fetchTaxRates(ctx context.Context, db *bun.DB, ids ...*int64) (taxRateMap, error) {
-	uniqueIDs := []int64{}
-	seen := map[int64]bool{}
-	for _, id := range ids {
-		if id == nil || *id == 0 || seen[*id] {
-			continue
-		}
-		seen[*id] = true
-		uniqueIDs = append(uniqueIDs, *id)
-	}
-
-	result := taxRateMap{}
-	if len(uniqueIDs) == 0 {
-		return result, nil
-	}
-
-	rows := []struct {
-		ID   int64  `bun:"id"`
-		Rate string `bun:"rate"`
-	}{}
-	if err := db.NewRaw(`SELECT id, rate FROM master_tax WHERE id IN (?)`, bun.In(uniqueIDs)).Scan(ctx, &rows); err != nil {
-		return nil, err
-	}
-	for _, row := range rows {
-		result[row.ID] = row.Rate
-	}
-	return result, nil
-}
-
-// resolveItemTax: replika PERSIS logic MenuServices.php baris 220-241 -- use_tax item WAJIB
-// "vat" atau "pb1" persis (case-sensitive), selain itu (kosong, typo, dst) dianggap gak kena
-// pajak. tax_id dari visit purpose yang 0/nil juga dianggap gak ada pajak walau use_tax-nya
-// cocok.
-func resolveItemTax(useTax string, cfg *visitPurposeConfig, rates taxRateMap) (*int64, *string) {
-	var taxID *int64
-	switch useTax {
-	case "vat":
-		taxID = cfg.Vat
-	case "pb1":
-		taxID = cfg.Pb1
-	}
-	if taxID == nil || *taxID == 0 {
-		return nil, nil
-	}
-	return taxID, rates.rate(taxID)
-}
-
-// packageRow: hasil mentah query fetchPackages() -- 1 baris = 1 sub-item package, kebawa
-// info parent item + group-nya.
-type packageRow struct {
-	ParentItemID  int64   `bun:"parent_item_id"`
-	PackageID     int64   `bun:"package_id"`
-	PackageName   string  `bun:"package_name"`
-	MinQty        int64   `bun:"min_qty"`
-	MaxQty        int64   `bun:"max_qty"`
-	MenuPackageID int64   `bun:"menu_package_id"`
-	Price         string  `bun:"price"`
-	SubItemID     int64   `bun:"sub_item_id"`
-	SubItemName   string  `bun:"sub_item_name"`
-	SubIconSrc    *string `bun:"sub_item_icon_src"`
-	SubUseTax     string  `bun:"sub_item_use_tax"`
-}
-
-// fetchPackages: batch 1 query buat SEMUA item_id sekaligus (bukan per-item, biar gak N+1) --
-// balikin map item_id (item UTAMA, bukan sub-item) -> daftar package group-nya. Item yang gak
-// punya package sama sekali gak punya entri di map ini (bukan array kosong).
-//
-// Sub-item package itu SENDIRINYA baris master_item beneran (lewat item_conversion_detail_id),
-// jadi pajaknya diresolve PERSIS sama function (resolveItemTax) yang dipake item utama -- bukan
-// diwarisin dari item utama, bukan logic baru. price di sini BUKAN dari master_pricelist_detail
-// (itu buat item utama) -- ini price/surcharge package-nya sendiri dari
-// master_item_package_detail.price (konvensi ERP: 0 = "termasuk gratis", bukan 0 = ada
-// tambahan biaya).
-func fetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *visitPurposeConfig, rates taxRateMap) (map[int64][]packageGroup, error) {
-	result := map[int64][]packageGroup{}
-	if len(itemIDs) == 0 {
-		return result, nil
-	}
-
-	rows := []packageRow{}
-	err := db.NewRaw(`
-		SELECT
-			mip.item_id AS parent_item_id,
-			mipg.id AS package_id, mipg.name AS package_name, mipg.min_qty, mipg.max_qty,
-			mipd.id AS menu_package_id, mipd.price,
-			submi.id AS sub_item_id, submi.item_name AS sub_item_name,
-			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
-		FROM master_item_package mip
-		JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id
-		JOIN master_item_package_detail mipd ON mipd.package_group_id = mipg.id
-		JOIN master_item_conversion_detail submicd ON submicd.id = mipd.item_conversion_detail_id
-		JOIN master_item submi ON submi.id = submicd.item_id
-		WHERE mip.item_id IN (?)
-		ORDER BY mip.item_id ASC, mipg.id ASC, mipd.id ASC
-	`, bun.In(itemIDs)).Scan(ctx, &rows)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, row := range rows {
-		taxID, taxRate := resolveItemTax(row.SubUseTax, cfg, rates)
-		subItem := packageSubItem{
-			MenuPackageID: row.MenuPackageID,
-			ItemID:        row.SubItemID,
-			ItemName:      row.SubItemName,
-			Price:         row.Price,
-			IconSrc:       row.SubIconSrc,
-			TaxType:       row.SubUseTax,
-			TaxID:         taxID,
-			TaxRate:       taxRate,
-		}
-
-		groups := result[row.ParentItemID]
-		groupIdx := len(groups) - 1
-		if groupIdx < 0 || groups[groupIdx].PackageID != row.PackageID {
-			groups = append(groups, packageGroup{
-				PackageID:       row.PackageID,
-				PackageName:     row.PackageName,
-				MinQty:          row.MinQty,
-				MaxQty:          row.MaxQty,
-				MenuPackageList: []packageSubItem{},
-			})
-			groupIdx = len(groups) - 1
-		}
-		groups[groupIdx].MenuPackageList = append(groups[groupIdx].MenuPackageList, subItem)
-		result[row.ParentItemID] = groups
-	}
-
-	return result, nil
-}
-
 // buildMenuTree: baris flat (1 baris = 1 item, kebawa nama category/subcategory-nya) dirakit
 // jadi tree bersarang. Query udah ORDER BY category lalu subcategory lalu item name, jadi
 // cukup "pecah begitu ID-nya ganti" -- gak perlu sort ulang di Go.
-func buildMenuTree(rows []menuItemRow, cfg *visitPurposeConfig, rates taxRateMap, packages map[int64][]packageGroup) []menuCategory {
+func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pricing.TaxRateMap, packages map[int64][]pricing.PackageGroup) []menuCategory {
 	categories := []menuCategory{}
 
 	for _, row := range rows {
-		taxID, taxRate := resolveItemTax(row.UseTax, cfg, rates)
+		taxID, taxRate := pricing.ResolveItemTax(row.UseTax, cfg, rates)
 		packageList, ok := packages[row.ItemID]
 		if !ok {
-			packageList = []packageGroup{}
+			packageList = []pricing.PackageGroup{}
 		}
 		item := menuItem{
 			ItemID:      row.ItemID,
