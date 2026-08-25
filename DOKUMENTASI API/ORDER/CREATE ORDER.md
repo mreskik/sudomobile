@@ -104,6 +104,12 @@ Semua validasi [`CALCULATE.md`](CALCULATE.md) berlaku (item/package/promo/dll) �
 - `sudomobile/backend/pricing/paymentmethod.go` — `ResolvePaymentMethod()`, filter SAMA PERSIS `GET PAYMENT METHOD LIST.md`.
 - Env baru `PAYMENT_GATEWAY_ENDPOINT` (`sudomobile/backend/config/payment_gateway.go`, default `http://localhost:98`) — mirror `PAYMENT_GATEWAY_ENDPOINT` POS.
 
+### Bug fix: `tax_rate` NULL ke kolom `NOT NULL` (2026-08-25)
+
+`mb_order_detail`/`mb_order_detail_package.tax_rate` di DB itu `NOT NULL DEFAULT 0` — tapi `pricing.ResolveItemTax()` **sengaja** balikin `nil` buat item/sub-item yang gak kena pajak (nil punya makna sendiri di response API: "emang gak ada pajak", beda dari `"0.00"` yang bisa disalahartikan "kena pajak tapi rate-nya 0%"). Sebelum ada fix ini, order yang isinya item **untaxed** (`use_tax` bukan `"vat"`/`"pb1"`) bakal GAGAL ke-insert total (constraint violation) — ketauan pas item test yang selalu dipakai sepanjang sesi ini (`109`) kebetulan selalu `use_tax='pb1'` (taxed), jadi gak pernah ketes kasus untaxed.
+
+Fix-nya di titik **INSERT doang** (`taxRateOrZero()` di `order_create_handler.go`), BUKAN di `pricing` package — konversi `nil`→`"0.00"` cuma di boundary DB, makna `nil` di response API (`Calculate`/menu-tree) tetap utuh gak berubah.
+
 ## Tervalidasi live (2026-08-25)
 
 End-to-end pakai service `payment` beneran (Midtrans sandbox asli, dijalanin lokal port `98`) + `sudomobile` (port sementara) + member session token real:
@@ -114,6 +120,8 @@ End-to-end pakai service `payment` beneran (Midtrans sandbox asli, dijalanin lok
 - **Skenario gateway down** — service `payment` dimatiin, order baru di-submit → order TETAP sukses kebuat (`code: 0`, `mb_order.status=pending` beneran ada di DB), `mb_order_payment_request.status=failed` (bukan nyangkut `pending`), response `payment.status=failed` + `failure_reason` jelas (pesan koneksi ditolak).
 
 Semua data test (`mb_order`/`mb_order_detail`/`mb_order_payment_request`/`payment_gateway` di DB service `payment`/`master_payment_method_visit_purposes` scope sementara) dibersihkan total setelah verifikasi.
+
+**Regresi buat bug `tax_rate` (2026-08-25)**: `master_item.use_tax` item `109` (+ sub-item package `97`) di-flip sementara jadi string kosong (untaxed) → `create-order` yang sebelumnya bakal gagal (constraint violation), sekarang **sukses** — response `tax_rate: null` (makna API tetap kejaga), dicek langsung ke Postgres `mb_order_detail`/`mb_order_detail_package.tax_rate` beneran kesimpen `0.00` (bukan `NULL`, sesuai constraint kolom). `use_tax` kedua item di-revert balik ke `pb1` setelah verifikasi.
 
 ## Status
 

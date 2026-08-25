@@ -150,7 +150,7 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 					dpp, net_dpp, promo_id, discount_percent, discount_amount, total, notes
 				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`, detailULID, orderNumber, item.PricelistDetailID, item.MenuID, item.CategoryID, item.SubcategoryID,
-				item.Qty, result.FlagInclusiveTax, item.Price, item.TaxID, nullIfEmpty(item.TaxType), item.TaxRate, item.TaxAmount,
+				item.Qty, result.FlagInclusiveTax, item.Price, item.TaxID, nullIfEmpty(item.TaxType), taxRateOrZero(item.TaxRate), item.TaxAmount,
 				item.DPP, item.NetDPP, item.PromoID, item.DiscountPercent, item.DiscountAmount, item.Total, nullIfEmpty(item.Notes),
 			).Exec(ctx)
 			if err != nil {
@@ -165,7 +165,7 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 						dpp, net_dpp, total, notes
 					) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
 				`, generateULID(), detailULID, pkg.MenuPackageID, pkg.ItemID,
-					pkg.Qty, result.FlagInclusiveTax, pkg.Price, pkg.TaxID, nullIfEmpty(pkg.TaxType), pkg.TaxRate, pkg.TaxAmount,
+					pkg.Qty, result.FlagInclusiveTax, pkg.Price, pkg.TaxID, nullIfEmpty(pkg.TaxType), taxRateOrZero(pkg.TaxRate), pkg.TaxAmount,
 					pkg.DPP, pkg.NetDPP, pkg.Total,
 				).Exec(ctx)
 				if err != nil {
@@ -221,4 +221,18 @@ func nullIfEmpty(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// taxRateOrZero: mb_order_detail(_package).tax_rate itu NOT NULL DEFAULT 0 di DB, TAPI
+// pricing.ResolveItemTax() sengaja balikin nil buat item/sub-item yang gak kena pajak (nil di
+// situ punya makna sendiri di level API -- "emang gak ada pajak", beda dari "0.00" yang bisa
+// disalahartikan "kena pajak tapi rate-nya 0%"). JANGAN "benerin" ResolveItemTax()/CalculateLine()
+// biar balikin "0.00" -- itu bakal ngerusak makna nil yang emang sengaja di response
+// Calculate()/menu-tree. Konversi nil->0.00 cukup di titik INSERT ini doang, boundary antara
+// makna app-level (nullable) dan constraint DB-level (NOT NULL).
+func taxRateOrZero(rate *string) string {
+	if rate == nil {
+		return "0.00"
+	}
+	return *rate
 }
