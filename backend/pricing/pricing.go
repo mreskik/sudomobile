@@ -126,6 +126,7 @@ type PackageSubItem struct {
 	TaxType       string  `json:"tax_type"`
 	TaxID         *int64  `json:"tax_id"`
 	TaxRate       *string `json:"tax_rate"`
+	DefaultItem   bool    `json:"default_item"`
 }
 
 type PackageGroup struct {
@@ -146,6 +147,7 @@ type packageRow struct {
 	MaxQty        int64   `bun:"max_qty"`
 	MenuPackageID int64   `bun:"menu_package_id"`
 	Price         string  `bun:"price"`
+	DefaultItem   bool    `bun:"default_item"`
 	SubItemID     int64   `bun:"sub_item_id"`
 	SubItemName   string  `bun:"sub_item_name"`
 	SubIconSrc    *string `bun:"sub_item_icon_src"`
@@ -158,10 +160,13 @@ type packageRow struct {
 //
 // Sub-item package itu SENDIRINYA baris master_item beneran (lewat item_conversion_detail_id),
 // jadi pajaknya diresolve PERSIS sama function (ResolveItemTax) yang dipake item utama -- bukan
-// diwarisin dari item utama, bukan logic baru. price di sini BUKAN dari master_pricelist_detail
-// (itu buat item utama) -- ini price/surcharge package-nya sendiri dari
-// master_item_package_detail.price (konvensi ERP: 0 = "termasuk gratis", bukan 0 = ada
-// tambahan biaya).
+// diwarisin dari item utama, bukan logic baru. price di sini dari master_item_package_detail.price
+// (konvensi ERP: 0 = "termasuk gratis", bukan 0 = ada tambahan biaya) -- KECUALI kalau
+// flag_all_menu_template = false DAN ada override buat menu_template (cfg.MenuTemplateID) ini
+// di master_item_package_detail_menu_template, baru dipakai harga override-nya (2026-08-26,
+// niru PERSIS logic yang udah dipasang di MenuServices::GetMasterMenuList() POS -- CASE di SQL
+// di bawah = versi Go dari resolusi yang sama, fallback ke mipd.price kalau flag true ATAU
+// gak ketemu override-nya, BUKAN logic baru).
 func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitPurposeConfig, rates TaxRateMap) (map[int64][]PackageGroup, error) {
 	result := map[int64][]PackageGroup{}
 	if len(itemIDs) == 0 {
@@ -173,17 +178,23 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 		SELECT
 			mip.item_id AS parent_item_id,
 			mipg.id AS package_id, mipg.name AS package_name, mipg.min_qty, mipg.max_qty,
-			mipd.id AS menu_package_id, mipd.price,
+			mipd.id AS menu_package_id,
+			CASE WHEN mipd.flag_all_menu_template THEN mipd.price
+				ELSE COALESCE(mt.price, mipd.price)
+			END AS price,
+			mipd.default_item,
 			submi.id AS sub_item_id, submi.item_name AS sub_item_name,
 			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
 		FROM master_item_package mip
 		JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id
 		JOIN master_item_package_detail mipd ON mipd.package_group_id = mipg.id
+		LEFT JOIN master_item_package_detail_menu_template mt
+			ON mt.master_item_package_detail_id = mipd.id AND mt.menu_template_id = ?
 		JOIN master_item_conversion_detail submicd ON submicd.id = mipd.item_conversion_detail_id
 		JOIN master_item submi ON submi.id = submicd.item_id
 		WHERE mip.item_id IN (?)
 		ORDER BY mip.item_id ASC, mipg.id ASC, mipd.id ASC
-	`, bun.In(itemIDs)).Scan(ctx, &rows)
+	`, cfg.MenuTemplateID, bun.In(itemIDs)).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
 	}
@@ -199,6 +210,7 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 			TaxType:       row.SubUseTax,
 			TaxID:         taxID,
 			TaxRate:       taxRate,
+			DefaultItem:   row.DefaultItem,
 		}
 
 		groups := result[row.ParentItemID]

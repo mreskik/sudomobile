@@ -46,7 +46,7 @@ Sukses (payment gateway berhasil diminta):
   "code": 0,
   "message": "success",
   "data": {
-    "order_number": "MB51202608250758354ed2f7",
+    "order_number": "NOSBE2026082610004571",
     "status": "pending",
     "sub_total": "111930.00",
     "total_tax": "11193.00",
@@ -84,7 +84,7 @@ Retry payment request buat order yang statusnya `payment.status: failed` **belum
 
 ## Alur (2 langkah backend, 1 call client)
 
-1. **Hitung & simpan** — `calculateOrder()` (fungsi INTI yang sama dipakai `Calculate()`) resolve+validasi ulang semua (`branch_id`/`visit_purpose_id` → `menu_template_id`, item, package, promo — gak percaya apa pun dari client). Kalau lolos, generate `order_number` (`"MB" + branch_id + timestamp + 6 hex acak` — beda dari format POS `"NO" + terminal_id + branch_code + timestamp`, karena mobile gak punya `terminal_id` dan request bisa concurrent dari banyak device), lalu insert `mb_order` + `mb_order_detail`(+`_package`) dalam **1 transaksi** (rollback total kalau ada yang gagal).
+1. **Hitung & simpan** — `calculateOrder()` (fungsi INTI yang sama dipakai `Calculate()`) resolve+validasi ulang semua (`branch_id`/`visit_purpose_id` → `menu_template_id`, item, package, promo — gak percaya apa pun dari client). Kalau lolos, generate `order_number` (format `"NO" + branch_code + timestamp(YmdHis) + 2 digit random` — lihat [PAYMENT STATUS.md](PAYMENT%20STATUS.md#format-order_number-dan-payment_number-2026-08-26) buat penjelasan lengkap format ini & pasangannya `payment_number`), lalu insert `mb_order` + `mb_order_detail`(+`_package`) dalam **1 transaksi** (rollback total kalau ada yang gagal).
 2. **Minta QR** — insert `mb_order_payment_request` (status `pending`) SEBELUM manggil service `payment`, baru `POST {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/qris` (`sudomobile/backend/modules/order/payment_gateway_client.go`, mirror `App\Services\PaymentGatewayServices::RequestPayment()` POS). Gagal → baris di-update `status: failed` (bukan nyangkut `pending` palsu), TAPI order dari langkah 1 gak di-rollback — itu udah order yang valid, cuma belum ada cara bayarnya buat sekarang.
 
 `order_type` di-hardcode `"takeaway"`, `pax` dibiarin `NULL` (keputusan 2026-08-24, mobile gak ada dine-in). `order_fee`/`service_charge`/`platform_fee`/`delivery_cost` di `mb_order` disimpen `0` — **SAMA PERSIS** gap yang udah didokumentasikan di [`GET VISIT PURPOSE DETAIL.md`](../MENU/GET%20VISIT%20PURPOSE%20DETAIL.md) (`service_charge` diresolve tapi gak pernah diterapkan ke perhitungan manapun di seluruh ekosistem ini — bukan hal baru yang kelewat di sini).
@@ -99,7 +99,7 @@ Semua validasi [`CALCULATE.md`](CALCULATE.md) berlaku (item/package/promo/dll) �
 ## Sumber data / implementasi
 
 - `sudomobile/backend/modules/order/order_create_handler.go` — `Create()`, `insertOrder()` (transaksi), `requestPaymentForOrder()`.
-- `sudomobile/backend/modules/order/generators.go` — `generateOrderNumber()`, `generateULID()` (pakai `github.com/google/uuid`, BUKAN ULID asli kayak POS punya `Str::ulid()` — cuma butuh unik, sortability-nya emang gak dipakai logic manapun).
+- `sudomobile/backend/modules/order/generators.go` — `generateReferenceNumber()` (pola bareng, dipakai `generateOrderNumber()` di sini DAN `generatePaymentNumber()` yang dipakai `finalizeSettledPayment()`, lihat [PAYMENT STATUS.md](PAYMENT%20STATUS.md#format-order_number-dan-payment_number-2026-08-26)), `generateULID()` (pakai `github.com/google/uuid`, BUKAN ULID asli kayak POS punya `Str::ulid()` — cuma butuh unik, sortability-nya emang gak dipakai logic manapun).
 - `sudomobile/backend/modules/order/payment_gateway_client.go` — HTTP client ke service `payment`, mirror kontrak `payment/backend/modules/paymentgateway/paymentgateway_dto.go`.
 - `sudomobile/backend/pricing/paymentmethod.go` — `ResolvePaymentMethod()`, filter SAMA PERSIS `GET PAYMENT METHOD LIST.md`.
 - Env baru `PAYMENT_GATEWAY_ENDPOINT` (`sudomobile/backend/config/payment_gateway.go`, default `http://localhost:98`) — mirror `PAYMENT_GATEWAY_ENDPOINT` POS.

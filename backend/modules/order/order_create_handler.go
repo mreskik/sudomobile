@@ -98,11 +98,12 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 
 	var companyID *int
-	if err := h.db.NewRaw(`SELECT company_id FROM master_branch WHERE id = ?`, body.BranchID).Scan(ctx, &companyID); err != nil {
+	var branchCode string
+	if err := h.db.NewRaw(`SELECT company_id, COALESCE(code, '') FROM master_branch WHERE id = ?`, body.BranchID).Scan(ctx, &companyID, &branchCode); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("branch tidak ditemukan"))
 	}
 
-	orderNumber := generateOrderNumber(body.BranchID)
+	orderNumber := generateOrderNumber(branchCode)
 
 	if err := insertOrder(ctx, h.db, orderNumber, memberID, companyID, body, calcResult); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal menyimpan order"))

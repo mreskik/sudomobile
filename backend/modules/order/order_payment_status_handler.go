@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"sudomobile/backend/helpers"
 	"sudomobile/backend/middleware"
@@ -134,20 +135,53 @@ func SyncPaymentStatus(ctx context.Context, db *bun.DB, orderNumber, currentOrde
 	}
 }
 
-// finalizeSettledPayment: insert mb_order_payment (FINAL, sekali doang) + update mb_order.status
-// jadi 'paid'. payment_amount/payment_method_id diambil dari mb_order_payment_request (snapshot
-// pas request dibuat), BUKAN dari gateway/client -- mirror PaymentServices::SavePayment() POS.
-// Dibungkus 1 transaksi biar insert+update konsisten (gak ada kondisi payment_amount kesimpen
-// tapi mb_order.status ketinggalan 'pending', atau sebaliknya).
+// finalizeSettledPayment: generate payment_number (BARU muncul di sini, pas payment beneran
+// settlement -- BUKAN pas order dibuat), insert mb_order_payment (FINAL, sekali doang) + update
+// mb_order.status jadi 'paid' + mb_order.payment_number. payment_amount/payment_method_id
+// diambil dari mb_order_payment_request (snapshot pas request dibuat), BUKAN dari gateway/client
+// -- mirror PaymentServices::SavePayment() POS.
+//
+// mb_order_payment.payment_number FK ke mb_order(payment_number) (bukan order_number lagi, lihat
+// migration 120) -- mb_order WAJIB di-UPDATE duluan sebelum INSERT ke mb_order_payment, kebalik
+// bakal kena FK violation (nilai payment_number harus udah ada di mb_order dulu).
+//
+// Dibungkus 1 transaksi biar update+insert konsisten (gak ada kondisi payment_number kesimpen di
+// mb_order tapi mb_order_payment ketinggalan, atau sebaliknya) -- INCLUDING pg_notify() di bawah:
+// NOTIFY yang dipanggil di dalam transaksi Postgres ditunda sampai COMMIT beneran kejadian, dan
+// kalau transaksinya ROLLBACK, NOTIFY-nya gak pernah kekirim -- otomatis gak ada sinyal palsu
+// buat order yang ternyata gagal di-finalize.
+//
+// pg_notify('mb_order_paid', '{branch_id}:{order_number}') -- disepakati 2026-08-26, dikonsumsi
+// APIANDORDER (LISTEN, relay ke worker POS lewat WebSocket per branch). Level APLIKASI (bukan DB
+// trigger) -- keputusan final, lihat CATATAN INTERNAL.md.
 func finalizeSettledPayment(ctx context.Context, db *bun.DB, orderNumber, paymentGatewayOrderID string, paymentMethodID int64, amount string) error {
 	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewRaw(`
-			INSERT INTO mb_order_payment (ulid, order_number, payment_method_id, payment_amount, payment_gateway_order_id)
-			VALUES (?, ?, ?, ?, ?)
-		`, generateULID(), orderNumber, paymentMethodID, amount, paymentGatewayOrderID).Exec(ctx); err != nil {
+		var branchID int
+		var branchCode string
+		if err := tx.NewRaw(`
+			SELECT mo.branch_id, COALESCE(mbr.code, '') FROM mb_order mo
+			JOIN master_branch mbr ON mbr.id = mo.branch_id
+			WHERE mo.order_number = ?
+		`, orderNumber).Scan(ctx, &branchID, &branchCode); err != nil {
 			return err
 		}
-		_, err := tx.NewRaw(`UPDATE mb_order SET status = 'paid', updated_at = now() WHERE order_number = ?`, orderNumber).Exec(ctx)
+		paymentNumber := generatePaymentNumber(branchCode)
+
+		if _, err := tx.NewRaw(`
+			UPDATE mb_order SET status = 'paid', payment_number = ?, updated_at = now() WHERE order_number = ?
+		`, paymentNumber, orderNumber).Exec(ctx); err != nil {
+			return err
+		}
+
+		if _, err := tx.NewRaw(`
+			INSERT INTO mb_order_payment (ulid, payment_number, payment_method_id, payment_amount, payment_gateway_order_id)
+			VALUES (?, ?, ?, ?, ?)
+		`, generateULID(), paymentNumber, paymentMethodID, amount, paymentGatewayOrderID).Exec(ctx); err != nil {
+			return err
+		}
+
+		payload := fmt.Sprintf("%d:%s", branchID, orderNumber)
+		_, err := tx.NewRaw(`SELECT pg_notify('mb_order_paid', ?)`, payload).Exec(ctx)
 		return err
 	})
 }

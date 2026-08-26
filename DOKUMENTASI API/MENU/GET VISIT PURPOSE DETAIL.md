@@ -65,7 +65,8 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
                         "icon_src": null,
                         "tax_type": "pb1",
                         "tax_id": 12,
-                        "tax_rate": "10.00"
+                        "tax_rate": "10.00",
+                        "default_item": false
                       }
                     ]
                   }
@@ -106,7 +107,8 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
 
 - `menu_package_id` — id `master_item_package_detail`, dipakai buat ngerujuk pilihan spesifik ini pas order nanti (bukan `item_id`).
 - `item_id`/`item_name` — sub-item ini **beneran baris `master_item`** sendiri (lewat `item_conversion_detail_id`), bukan data fiktif nempel di package.
-- `price` — **BUKAN** dari `master_pricelist_detail` kayak item utama, ini `master_item_package_detail.price` sendiri (harga/surcharge KHUSUS package, konvensi ERP: `0` = "termasuk gratis" kalau dipilih, bukan berarti gagal/error).
+- `price` — **BUKAN** dari `master_pricelist_detail` kayak item utama, basisnya `master_item_package_detail.price` (harga/surcharge KHUSUS package, konvensi ERP: `0` = "termasuk gratis" kalau dipilih, bukan berarti gagal/error). **Update (2026-08-26)**: sekarang bisa BEDA per `menu_template_id` — kalau `master_item_package_detail.flag_all_menu_template = false` **dan** ada baris `master_item_package_detail_menu_template` yang cocok buat `menu_template_id` visit purpose ini, harga override itu yang dipakai; kalau `flag_all_menu_template = true` **atau** gak ketemu override-nya, tetap fallback ke `master_item_package_detail.price` (harga di atas). Resolusinya di SQL (`FetchPackages()`, `pricing.go`) — `CASE WHEN flag_all_menu_template THEN price ELSE COALESCE(override.price, price) END`, satu query, bukan lookup terpisah.
+- `default_item` — dari `master_item_package_detail.default_item` (2026-08-26), nandain sub-item mana yang "pre-selected" secara default pas customer buka package group ini. Passthrough apa adanya, gak ada logic tambahan di sini — konsumen (FE/app mobile) yang mutusin mau dipakein buat pre-check atau enggak.
 - `tax_type`/`tax_id`/`tax_rate` — diresolve **PERSIS** pakai fungsi yang sama kayak item utama (`resolveItemTax()`), dari `use_tax` milik sub-item itu SENDIRI (bukan diwarisin dari item utama/parent) — kebetulan di contoh di atas sama-sama `pb1` karena datanya emang gitu, tapi bisa beda kalau sub-item-nya punya `use_tax` beda dari parent.
 
 Kondisi lain (kosong, gak ketemu, error validasi param) sama kayak sebelumnya — lihat bagian bawah dokumen ini.

@@ -27,7 +27,7 @@ GET /api/order/history?date_from=2026-08-01&date_to=2026-08-25
   "message": "success",
   "data": [
     {
-      "order_number": "MB5120260825092937e70fd5",
+      "order_number": "NOSBE2026082610004571",
       "status": "cancel",
       "order_in": "2026-08-25T09:29:37.412205+07:00",
       "total_billing": "123123.00",

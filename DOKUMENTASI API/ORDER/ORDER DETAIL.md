@@ -22,7 +22,7 @@ GET /api/order/:order_number
   "code": 0,
   "message": "success",
   "data": {
-    "order_number": "MB5120260825094154ecacab",
+    "order_number": "NOSBE2026082610004571",
     "status": "pending",
     "created_at": "2026-08-25T09:41:54.936117+07:00",
     "branch_id": 51,
