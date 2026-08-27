@@ -5,8 +5,10 @@ import (
 	"math"
 	"strconv"
 
+	"sudomobile/backend/heartbeat"
 	"sudomobile/backend/helpers"
 	"sudomobile/backend/middleware"
+	"sudomobile/backend/modules/branch"
 	"sudomobile/backend/pricing"
 
 	"github.com/gofiber/fiber/v3"
@@ -80,6 +82,26 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 
 	ctx := c.Context()
+
+	// Barrier heartbeat + jam operasional (2026-08-27) -- SENGAJA cuma di Create() (beneran
+	// nyimpen order), BUKAN di Calculate() (preview keranjang, gak nyimpen apa-apa, gak ada
+	// ruginya biar tetep bisa dilihat walau branch-nya offline/tutup). DUA-DUANYA harus true:
+	//   - heartbeat.IsOnline() -- kalau POS branch ini offline (gak pernah/berhenti ngirim
+	//     heartbeat, lihat SEND HEARTBEAT.md di posv1-laravel), gak ada worker yang bakal narik
+	//     order ini (lihat PULL MOBILE ORDER.md) -- order bakal nyangkut selamanya kalau
+	//     dibiarin kebuat.
+	//   - branch.IsOpenNow() -- di luar jam operasional, sebelumnya cuma info di List
+	//     (flag_status_store_open), sekarang JUGA jadi gerbang keras di sini -- gak masuk akal
+	//     nerima order pas jam tutup walau kebetulan POS-nya masih hidup (mis. lupa dimatiin).
+	// Dicek eksplisit terpisah (bukan 1 pesan gabungan) biar customer tau persis alasannya --
+	// gak berguna dikasih pesan generic pas 2 kemungkinan beda ini butuh tindak lanjut beda
+	// (nunggu buka vs coba lagi bentar lagi).
+	if !branch.IsOpenNow(ctx, h.db, body.BranchID) {
+		return c.JSON(res.SetCode(100).SetMessage("cabang sedang tutup (di luar jam operasional)"))
+	}
+	if !heartbeat.IsOnline(ctx, h.db, body.BranchID) {
+		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
+	}
 
 	calcResult, errMsg, err := calculateOrder(ctx, h.db, body.calculateRequest, memberID)
 	if err != nil {

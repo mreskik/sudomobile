@@ -95,6 +95,9 @@ Semua validasi [`CALCULATE.md`](CALCULATE.md) berlaku (item/package/promo/dll) �
 
 - `payment_method_id` kosong → `"payment_method_id wajib diisi"`.
 - `payment_method_id` gak ketemu / gak lolos filter (gateway-only, scope branch+visit_purpose) → `"payment method tidak ditemukan / tidak berlaku"`.
+- **(2026-08-27)** Branch lagi tutup (di luar jam operasional hari ini, `master_branch_ops_setting`) → `"cabang sedang tutup (di luar jam operasional)"`. Dicek pakai `branch.IsOpenNow()` (`modules/branch/branch_handler.go`, di-export biar dipakai lintas modul) — logic-nya SAMA PERSIS yang dipakai buat `flag_status_store_open` di [`GET BRANCH LIST.md`](../MENU/GET%20BRANCH%20LIST.md), cuma sekarang JUGA jadi gerbang keras di sini (sebelumnya cuma info tampilan doang).
+- **(2026-08-27)** Branch offline (POS-nya gak/berhenti ngirim heartbeat > 90 detik, lihat `SEND HEARTBEAT.md` di `posv1-laravel`) → `"cabang sedang offline, coba lagi nanti"`. Dicek pakai `heartbeat.IsOnline()` (`backend/heartbeat/heartbeat.go`). Kalau POS-nya offline, gak ada worker yang bakal narik order ini (lihat `PULL MOBILE ORDER.md`) — order ditolak dari awal daripada dibiarin kebuat lalu nyangkut gak pernah diproses.
+- Dua validasi di atas **CUMA di `Create()`**, BUKAN di `Calculate()` — preview keranjang tetap bisa dilihat walau branch-nya tutup/offline, gak ada ruginya (gak nyimpen apa-apa).
 
 ## Sumber data / implementasi
 

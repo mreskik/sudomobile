@@ -1,10 +1,12 @@
 package branch
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
 
+	"sudomobile/backend/heartbeat"
 	"sudomobile/backend/helpers"
 
 	"github.com/gofiber/fiber/v3"
@@ -71,13 +73,19 @@ type branchListItem struct {
 // itu sendiri (2026-08-24, dikoreksi) -- LEFT JOIN (bukan JOIN) biar branch tetep muncul kalau
 // somehow brand-nya gak ketemu, logo-nya null aja.
 //
-// status/open_time/closed_time/flag_status_store_open (2026-08-24) -- jam operasional HARI INI
-// dari master_branch_ops_setting, sama logic kayak DayShiftServices::GetOperationalHoursToday()
-// di POS (posv1-laravel/app/Services/DayShiftServices.php) -- dipilih pola itu (bukan
-// GetKioskDayStatus() yang gabung status dayshift) karena ini murni info tampilan buat
-// customer milih branch, bukan gerbang boleh/gak-nya order (gak ada konsep dayshift di
-// sudomobile). Ops setting belum di-setting buat hari ini -- balikin null/false semua, BUKAN
-// error (info tambahan doang, branch tetep muncul di list).
+// status/open_time/closed_time (2026-08-24) -- jam operasional HARI INI dari
+// master_branch_ops_setting, sama logic kayak DayShiftServices::GetOperationalHoursToday() di
+// POS (posv1-laravel/app/Services/DayShiftServices.php). Ops setting belum di-setting buat hari
+// ini -- balikin null/false semua, BUKAN error (info tambahan doang, branch tetep muncul di list).
+//
+// flag_status_store_open (2026-08-27, UPDATE) -- SEKARANG gabungan 2 syarat: jam operasional
+// (IsStoreOpenNow(), di atas) DAN branch-nya online (heartbeat.IsOnline(), lihat SEND
+// HEARTBEAT.md di posv1-laravel) -- dua-duanya harus true. Sebelumnya field ini MURNI info jam
+// operasional doang; sekarang jadi indikasi "beneran bisa dipesan sekarang", walau gerbang
+// SEBENARNYA yang nolak order tetap di Create() (order/order_create_handler.go, heartbeat.IsOnline()
+// dicek ULANG di situ) -- field ini display doang, BUKAN otoritas final (client jangan
+// nge-skip validasi di server dengan asumsi flag ini akurat 100% saat order beneran disubmit,
+// ada jeda waktu antara nge-list branch & submit order).
 func (h *handler) GetList(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 
@@ -117,19 +125,19 @@ func (h *handler) GetList(c fiber.Ctx) error {
 			Status:              row.OpsStatus,
 			OpenTime:            row.OpenTime,
 			ClosedTime:          row.ClosedTime,
-			FlagStatusStoreOpen: isStoreOpenNow(row.OpsStatus, row.OpenTime, row.ClosedTime, now),
+			FlagStatusStoreOpen: IsStoreOpenNow(row.OpsStatus, row.OpenTime, row.ClosedTime, now) && heartbeat.IsOnline(c.Context(), h.db, int(row.ID)),
 		})
 	}
 
 	return c.JSON(res.Success().SetData(list))
 }
 
-// isStoreOpenNow: replika DayShiftServices::GetOperationalHoursToday() (POS) -- always_open
+// IsStoreOpenNow: replika DayShiftServices::GetOperationalHoursToday() (POS) -- always_open
 // selalu true, open dicek terhadap jam sekarang (string compare "HH:MM:SS", SAMA kayak PHP-nya,
 // jadi rentang yang nyebrang tengah malam misal 18:00-02:00 juga SAMA-SAMA belum dihandle
 // bener di sini, konsisten sama keterbatasan yang udah ada -- bukan bug baru), closed/null
-// selalu false.
-func isStoreOpenNow(status, openTime, closedTime *string, now string) bool {
+// selalu false. Exported (2026-08-27) -- dipakai lintas modul, lihat IsOpenNow() di bawah.
+func IsStoreOpenNow(status, openTime, closedTime *string, now string) bool {
 	if status == nil {
 		return false
 	}
@@ -144,6 +152,30 @@ func isStoreOpenNow(status, openTime, closedTime *string, now string) bool {
 	default: // "closed"
 		return false
 	}
+}
+
+// IsOpenNow: versi self-contained IsStoreOpenNow() -- query sendiri jam operasional HARI INI
+// buat 1 branch, dipakai modul LAIN yang belum punya baris master_branch_ops_setting di tangan
+// (beda dari GetList() di atas, yang udah JOIN sekaligus buat banyak branch dalam 1 query, gak
+// cocok dipanggil per-branch di sini -- bakal N+1 kalau dipaksa reuse). Dipakai
+// order/order_create_handler.go buat barrier keras Create() (2026-08-27) -- lihat GET VISIT
+// PURPOSE DETAIL.md / KIOSK BRANCH VISIT PURPOSE DETAIL.md buat konteks kenapa jam operasional
+// akhirnya jadi gerbang keras juga (sebelumnya cuma info tampilan di List, sekarang dobel
+// dipakai). Error DB / baris gak ketemu -> false (fail-safe, sama semangatnya kayak
+// heartbeat.IsOnline()).
+func IsOpenNow(ctx context.Context, db *bun.DB, branchID int) bool {
+	today := weekdayNames[time.Now().Weekday()]
+
+	var status, openTime, closedTime *string
+	err := db.NewRaw(`
+		SELECT status, open_time, closed_time FROM master_branch_ops_setting
+		WHERE branch_id = ? AND day = ?
+	`, branchID, today).Scan(ctx, &status, &openTime, &closedTime)
+	if err != nil {
+		return false
+	}
+
+	return IsStoreOpenNow(status, openTime, closedTime, time.Now().Format("15:04:05"))
 }
 
 // pecahLocationCoordinate: location_coordinate di DB isinya 1 string "latitude,longitude"
