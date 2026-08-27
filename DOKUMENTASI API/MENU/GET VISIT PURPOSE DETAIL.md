@@ -44,6 +44,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
                 "item_id": 109,
                 "item_code": "MP-BC-109",
                 "item_name": "MENU PASTRY",
+                "item_description": null,
                 "image_src": "",
                 "icon_src": null,
                 "price": "123123.00",
@@ -61,6 +62,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
                         "menu_package_id": 31,
                         "item_id": 97,
                         "item_name": "HOT OKINAWA LATTE",
+                        "item_description": null,
                         "price": "15000.00",
                         "icon_src": null,
                         "tax_type": "pb1",
@@ -92,6 +94,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
 
 **Level item:**
 
+- `item_description` — apa adanya dari `master_item.item_description` (2026-08-27). `null` kalau item-nya emang gak diisi.
 - `tax_type` — apa adanya dari `master_item.use_tax` (string kosong kalau item-nya emang gak di-set).
 - `tax_id` — hasil resolusi: `tax_type == "vat"` → pakai `vat` visit purpose, `tax_type == "pb1"` → pakai `pb1` visit purpose, selain itu (termasuk kosong, atau typo) → `null`.
 - `tax_rate` — lookup `master_tax.rate` dari `tax_id` di atas, `null` kalau `tax_id`-nya `null`.
@@ -106,7 +109,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel
 **Level sub-item package** (`menu_package_list[]`):
 
 - `menu_package_id` — id `master_item_package_detail`, dipakai buat ngerujuk pilihan spesifik ini pas order nanti (bukan `item_id`).
-- `item_id`/`item_name` — sub-item ini **beneran baris `master_item`** sendiri (lewat `item_conversion_detail_id`), bukan data fiktif nempel di package.
+- `item_id`/`item_name`/`item_description` — sub-item ini **beneran baris `master_item`** sendiri (lewat `item_conversion_detail_id`), bukan data fiktif nempel di package. `item_description` (2026-08-27) apa adanya dari `master_item.item_description` milik sub-item itu SENDIRI (bukan diwarisin dari item utama/parent) — `null` kalau kosong.
 - `price` — **BUKAN** dari `master_pricelist_detail` kayak item utama, basisnya `master_item_package_detail.price` (harga/surcharge KHUSUS package, konvensi ERP: `0` = "termasuk gratis" kalau dipilih, bukan berarti gagal/error). **Update (2026-08-26)**: sekarang bisa BEDA per `menu_template_id` — kalau `master_item_package_detail.flag_all_menu_template = false` **dan** ada baris `master_item_package_detail_menu_template` yang cocok buat `menu_template_id` visit purpose ini, harga override itu yang dipakai; kalau `flag_all_menu_template = true` **atau** gak ketemu override-nya, tetap fallback ke `master_item_package_detail.price` (harga di atas). Resolusinya di SQL (`FetchPackages()`, `pricing.go`) — `CASE WHEN flag_all_menu_template THEN price ELSE COALESCE(override.price, price) END`, satu query, bukan lookup terpisah.
 - `default_item` — dari `master_item_package_detail.default_item` (2026-08-26), nandain sub-item mana yang "pre-selected" secara default pas customer buka package group ini. Passthrough apa adanya, gak ada logic tambahan di sini — konsumen (FE/app mobile) yang mutusin mau dipakein buat pre-check atau enggak.
 - `tax_type`/`tax_id`/`tax_rate` — diresolve **PERSIS** pakai fungsi yang sama kayak item utama (`resolveItemTax()`), dari `use_tax` milik sub-item itu SENDIRI (bukan diwarisin dari item utama/parent) — kebetulan di contoh di atas sama-sama `pb1` karena datanya emang gitu, tapi bisa beda kalau sub-item-nya punya `use_tax` beda dari parent.
@@ -140,7 +143,7 @@ SELECT
   mic.id AS category_id, mic.name AS category_name,
   misc.id AS subcategory_id, misc.name AS subcategory_name,
   misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
-  mi.id AS item_id, mi.item_code, mi.item_name,
+  mi.id AS item_id, mi.item_code, mi.item_name, mi.item_description,
   mi.image AS image_src, mi.icon_src AS item_icon_src,
   mpd.price, mi.use_tax
 FROM master_pricelist_detail mpd
@@ -161,7 +164,7 @@ SELECT
   mip.item_id AS parent_item_id,
   mipg.id AS package_id, mipg.name AS package_name, mipg.min_qty, mipg.max_qty,
   mipd.id AS menu_package_id, mipd.price,
-  submi.id AS sub_item_id, submi.item_name AS sub_item_name,
+  submi.id AS sub_item_id, submi.item_name AS sub_item_name, submi.item_description AS sub_item_description,
   submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
 FROM master_item_package mip
 JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id

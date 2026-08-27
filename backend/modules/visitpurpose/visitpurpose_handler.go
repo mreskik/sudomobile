@@ -77,6 +77,7 @@ type menuItemRow struct {
 	ItemID          int64   `bun:"item_id"`
 	ItemCode        string  `bun:"item_code"`
 	ItemName        string  `bun:"item_name"`
+	ItemDescription *string `bun:"item_description"`
 	ImageSrc        *string `bun:"image_src"`
 	ItemIconSrc     *string `bun:"item_icon_src"`
 	Price           string  `bun:"price"`
@@ -84,16 +85,17 @@ type menuItemRow struct {
 }
 
 type menuItem struct {
-	ItemID      int64                  `json:"item_id"`
-	ItemCode    string                 `json:"item_code"`
-	ItemName    string                 `json:"item_name"`
-	ImageSrc    *string                `json:"image_src"`
-	IconSrc     *string                `json:"icon_src"`
-	Price       string                 `json:"price"`
-	TaxType     string                 `json:"tax_type"`
-	TaxID       *int64                 `json:"tax_id"`
-	TaxRate     *string                `json:"tax_rate"`
-	PackageList []pricing.PackageGroup `json:"package_list"`
+	ItemID          int64                  `json:"item_id"`
+	ItemCode        string                 `json:"item_code"`
+	ItemName        string                 `json:"item_name"`
+	ItemDescription *string                `json:"item_description"`
+	ImageSrc        *string                `json:"image_src"`
+	IconSrc         *string                `json:"icon_src"`
+	Price           string                 `json:"price"`
+	TaxType         string                 `json:"tax_type"`
+	TaxID           *int64                 `json:"tax_id"`
+	TaxRate         *string                `json:"tax_rate"`
+	PackageList     []pricing.PackageGroup `json:"package_list"`
 }
 
 type menuSubcategory struct {
@@ -187,7 +189,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 			mic.id AS category_id, mic.name AS category_name,
 			misc.id AS subcategory_id, misc.name AS subcategory_name,
 			misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
-			mi.id AS item_id, mi.item_code, mi.item_name,
+			mi.id AS item_id, mi.item_code, mi.item_name, mi.item_description,
 			mi.image AS image_src, mi.icon_src AS item_icon_src,
 			mpd.price, mi.use_tax
 		FROM master_pricelist_detail mpd
@@ -250,16 +252,17 @@ func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pr
 			packageList = []pricing.PackageGroup{}
 		}
 		item := menuItem{
-			ItemID:      row.ItemID,
-			ItemCode:    row.ItemCode,
-			ItemName:    row.ItemName,
-			ImageSrc:    row.ImageSrc,
-			IconSrc:     row.ItemIconSrc,
-			Price:       row.Price,
-			TaxType:     row.UseTax,
-			TaxID:       taxID,
-			TaxRate:     taxRate,
-			PackageList: packageList,
+			ItemID:          row.ItemID,
+			ItemCode:        row.ItemCode,
+			ItemName:        row.ItemName,
+			ItemDescription: row.ItemDescription,
+			ImageSrc:        row.ImageSrc,
+			IconSrc:         row.ItemIconSrc,
+			Price:           row.Price,
+			TaxType:         row.UseTax,
+			TaxID:           taxID,
+			TaxRate:         taxRate,
+			PackageList:     packageList,
 		}
 
 		catIdx := len(categories) - 1

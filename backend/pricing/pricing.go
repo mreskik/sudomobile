@@ -118,15 +118,16 @@ func ResolveItemTax(useTax string, cfg *VisitPurposeConfig, rates TaxRateMap) (*
 // 2 varian rasa). Struktur & nama field SENGAJA niru pola POS (MenuServices.php
 // packageList/menuPackageList), snake_case-in doang.
 type PackageSubItem struct {
-	MenuPackageID int64   `json:"menu_package_id"`
-	ItemID        int64   `json:"item_id"`
-	ItemName      string  `json:"item_name"`
-	Price         string  `json:"price"`
-	IconSrc       *string `json:"icon_src"`
-	TaxType       string  `json:"tax_type"`
-	TaxID         *int64  `json:"tax_id"`
-	TaxRate       *string `json:"tax_rate"`
-	DefaultItem   bool    `json:"default_item"`
+	MenuPackageID   int64   `json:"menu_package_id"`
+	ItemID          int64   `json:"item_id"`
+	ItemName        string  `json:"item_name"`
+	ItemDescription *string `json:"item_description"`
+	Price           string  `json:"price"`
+	IconSrc         *string `json:"icon_src"`
+	TaxType         string  `json:"tax_type"`
+	TaxID           *int64  `json:"tax_id"`
+	TaxRate         *string `json:"tax_rate"`
+	DefaultItem     bool    `json:"default_item"`
 }
 
 type PackageGroup struct {
@@ -140,18 +141,19 @@ type PackageGroup struct {
 // packageRow: hasil mentah query FetchPackages() -- 1 baris = 1 sub-item package, kebawa
 // info parent item + group-nya.
 type packageRow struct {
-	ParentItemID  int64   `bun:"parent_item_id"`
-	PackageID     int64   `bun:"package_id"`
-	PackageName   string  `bun:"package_name"`
-	MinQty        int64   `bun:"min_qty"`
-	MaxQty        int64   `bun:"max_qty"`
-	MenuPackageID int64   `bun:"menu_package_id"`
-	Price         string  `bun:"price"`
-	DefaultItem   bool    `bun:"default_item"`
-	SubItemID     int64   `bun:"sub_item_id"`
-	SubItemName   string  `bun:"sub_item_name"`
-	SubIconSrc    *string `bun:"sub_item_icon_src"`
-	SubUseTax     string  `bun:"sub_item_use_tax"`
+	ParentItemID       int64   `bun:"parent_item_id"`
+	PackageID          int64   `bun:"package_id"`
+	PackageName        string  `bun:"package_name"`
+	MinQty             int64   `bun:"min_qty"`
+	MaxQty             int64   `bun:"max_qty"`
+	MenuPackageID      int64   `bun:"menu_package_id"`
+	Price              string  `bun:"price"`
+	DefaultItem        bool    `bun:"default_item"`
+	SubItemID          int64   `bun:"sub_item_id"`
+	SubItemName        string  `bun:"sub_item_name"`
+	SubItemDescription *string `bun:"sub_item_description"`
+	SubIconSrc         *string `bun:"sub_item_icon_src"`
+	SubUseTax          string  `bun:"sub_item_use_tax"`
 }
 
 // FetchPackages: batch 1 query buat SEMUA item_id sekaligus (bukan per-item, biar gak N+1) --
@@ -183,7 +185,7 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 				ELSE COALESCE(mt.price, mipd.price)
 			END AS price,
 			mipd.default_item,
-			submi.id AS sub_item_id, submi.item_name AS sub_item_name,
+			submi.id AS sub_item_id, submi.item_name AS sub_item_name, submi.item_description AS sub_item_description,
 			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
 		FROM master_item_package mip
 		JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id
@@ -202,15 +204,16 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 	for _, row := range rows {
 		taxID, taxRate := ResolveItemTax(row.SubUseTax, cfg, rates)
 		subItem := PackageSubItem{
-			MenuPackageID: row.MenuPackageID,
-			ItemID:        row.SubItemID,
-			ItemName:      row.SubItemName,
-			Price:         row.Price,
-			IconSrc:       row.SubIconSrc,
-			TaxType:       row.SubUseTax,
-			TaxID:         taxID,
-			TaxRate:       taxRate,
-			DefaultItem:   row.DefaultItem,
+			MenuPackageID:   row.MenuPackageID,
+			ItemID:          row.SubItemID,
+			ItemName:        row.SubItemName,
+			ItemDescription: row.SubItemDescription,
+			Price:           row.Price,
+			IconSrc:         row.SubIconSrc,
+			TaxType:         row.SubUseTax,
+			TaxID:           taxID,
+			TaxRate:         taxRate,
+			DefaultItem:     row.DefaultItem,
 		}
 
 		groups := result[row.ParentItemID]
