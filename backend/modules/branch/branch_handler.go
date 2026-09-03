@@ -37,6 +37,7 @@ type branchListRow struct {
 	ID                 int64   `bun:"id"`
 	Name               string  `bun:"name"`
 	Address            string  `bun:"address"`
+	BrandId            int64   `bun:"brand_id"`
 	BrandName          *string `bun:"brand_name"`
 	LogoBrandSrc       *string `bun:"logo_brand_src"`
 	LocationCoordinate *string `bun:"location_coordinate"`
@@ -49,6 +50,7 @@ type branchListItem struct {
 	ID                  int64    `json:"id"`
 	Name                string   `json:"name"`
 	Address             string   `json:"address"`
+	BrandId             int64    `json:"brand_id"`
 	BrandName           *string  `json:"brand_name"`
 	LogoBrandSrc        *string  `json:"logo_brand_src"`
 	Latitude            *float64 `json:"latitude"`
@@ -95,7 +97,7 @@ func (h *handler) GetList(c fiber.Ctx) error {
 	err := h.db.NewRaw(`
 		SELECT
 			mb.id, mb.name, mb.address,
-			mbr.name AS brand_name, mbr.logo_path AS logo_brand_src,
+			mb.brand_id, mbr.name AS brand_name, mbr.logo_path AS logo_brand_src,
 			mb.location_coordinate,
 			mbos.status AS ops_status, mbos.open_time, mbos.closed_time
 		FROM master_branch mb
@@ -118,6 +120,7 @@ func (h *handler) GetList(c fiber.Ctx) error {
 			ID:                  row.ID,
 			Name:                row.Name,
 			Address:             row.Address,
+			BrandId:             row.BrandId,
 			BrandName:           row.BrandName,
 			LogoBrandSrc:        row.LogoBrandSrc,
 			Latitude:            lat,

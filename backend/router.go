@@ -8,6 +8,7 @@ import (
 	"sudomobile/backend/modules/banner"
 	"sudomobile/backend/modules/bestseller"
 	"sudomobile/backend/modules/branch"
+	"sudomobile/backend/modules/brand"
 	"sudomobile/backend/modules/order"
 	"sudomobile/backend/modules/paymentmethod"
 	"sudomobile/backend/modules/promo"
@@ -62,6 +63,11 @@ func RegisterRoutes(app *fiber.App) {
 	// lokasi pickup sebelum login. Gak di-scope brand_id (2026-08-24, konfirmasi eksplisit).
 	branchHandler := branch.NewHandler(config.DB)
 	root.Get("/branch", branchHandler.GetList)
+
+	// PUBLIK -- id+name brand aktif langsung dari X-App-Setting (middleware.BrandID), gak perlu
+	// mobile app hardcode nama brand sendiri (mis. buat header/splash screen).
+	brandHandler := brand.NewHandler(config.DB)
+	root.Get("/brand/default", brandHandler.GetDefault)
 
 	// PUBLIK -- daftar visit purpose yang dibolehin muncul di mobile customer app buat 1
 	// branch (branch_id eksplisit di URL, konfirmasi 2026-08-24) -- filter

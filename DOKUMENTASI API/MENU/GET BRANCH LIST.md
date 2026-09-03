@@ -23,6 +23,7 @@ Gak ada body/param.
       "id": 14,
       "name": "TONAKO BANDUNG",
       "address": "Jl. Asia Afrika No 10 Bandung",
+      "brand_id": 6,
       "brand_name": "TONAKO",
       "logo_brand_src": "/storage/uploads/images/xxxxx.png",
       "latitude": -6.1800448,
@@ -45,7 +46,7 @@ Diurutkan `name` ASC.
 ```sql
 SELECT
   mb.id, mb.name, mb.address,
-  mbr.name AS brand_name, mbr.logo_path AS logo_brand_src,
+  mb.brand_id, mbr.name AS brand_name, mbr.logo_path AS logo_brand_src,
   mb.location_coordinate,
   mbos.status AS ops_status, mbos.open_time, mbos.closed_time
 FROM master_branch mb
@@ -63,6 +64,7 @@ Baca langsung dari DB `sudocore2` (`sudomobile` connect ke DB yang sama, gak ada
 - **`master_branch_setting.flag_online_service_mobile_customer = true`** — branch-nya diaktifin admin ERP buat nerima order online lewat mobile app (lihat `MASTER BRANCH.md` di sudocore2, field ini ada di object `setting` pas Create/Update branch).
 - **`master_branch.status = '1'`** — branch-nya sendiri masih aktif/gak ditutup. Branch yang nonaktif gak boleh muncul di app customer walau kebetulan `flag_online_service_mobile_customer`-nya `true`.
 - Field yang dibalikin **sengaja minimal** sesuai kebutuhan awal — field lain (`telp`, dll) belum diikutin, bisa ditambah belakangan kalau kebutuhan mobile app berkembang.
+- `brand_id` (2026-09-03) — kolom `master_branch.brand_id` langsung (`NOT NULL`, bukan dari `LEFT JOIN` kayak `brand_name`/`logo_brand_src`, jadi selalu ada nilainya). Ditambahin biar client bisa cocokin branch ini sama brand yang lagi aktif di `X-App-Setting` (lihat `GET DEFAULT BRAND.md`) tanpa harus nebak dari `brand_name` doang.
 - `brand_name`/`logo_brand_src` (2026-08-24) — dua-duanya dari `master_brand` (`LEFT JOIN` lewat `master_branch.brand_id`), **BUKAN** kolom milik branch itu sendiri. `logo_brand_src` sempet salah ambil `master_branch.logo_header_src` di iterasi awal, udah dikoreksi. `LEFT JOIN` (bukan `JOIN`) biar branch tetep muncul kalau somehow brand-nya gak ketemu -- `brand_name`/`logo_brand_src` jadi `null` aja, bukan branch-nya ikut hilang dari list. `logo_brand_src` path lokal (`/storage/uploads/images/...`), sama pola kayak `banner_src`/`profile_photo_src` di modul lain -- `sudomobile` gak download ulang, tinggal serve dari mount storage yang sama kayak `sudocore2` (lihat `CATATAN INTERNAL.md`).
 - `latitude`/`longitude` (2026-08-24) — hasil pecah `master_branch.location_coordinate` (format DB-nya 1 string `"latitude,longitude"`, contoh placeholder di form ERP: `"-6.1800448,106.9481984"`). Kalau formatnya gak sesuai (bukan persis 2 bagian dipisah koma, atau salah satu/kedua bagian bukan angka valid -- ada data test di DB yang isinya string sembarangan kayak `"tes"`), **kedua field dibalikin `null`** (bukan cuma yang gagal doang), biar app gak perlu nebak-nebak "ada koordinat tapi cuma latitude" -- selalu "ada koordinat lengkap" atau "gak ada sama sekali".
 - **`status`/`open_time`/`closed_time`/`flag_status_store_open`** (2026-08-24) — jam operasional **HARI INI** (`master_branch_ops_setting`, `LEFT JOIN` filter `day = <hari ini>`), replika logic `DayShiftServices::GetOperationalHoursToday()` di POS (`posv1-laravel`) -- sengaja pola itu (bukan `GetKioskDayStatus()` yang gabung status dayshift), soalnya `sudomobile` **gak ada konsep dayshift** kayak POS (dikonfirmasi eksplisit).
