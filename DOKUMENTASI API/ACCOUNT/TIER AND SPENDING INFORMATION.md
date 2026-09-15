@@ -36,7 +36,7 @@ Authorization: Bearer <token>
 | `next_evaluation` | date (`YYYY-MM-DD`) | Tanggal evaluasi tier **berikutnya** (bisa hari ini sendiri, kalau hari ini kebetulan cocok jadwal). Lihat "Cara hitung `next_evaluation`" |
 | `period_start` | date (`YYYY-MM-DD`) | Awal periode spending berjalan. Lihat "Cara hitung `period_start`" |
 | `period_end` | date (`YYYY-MM-DD`) | Selalu **hari ini** |
-| `spending_total` | string (numeric) | `SUM(pos_order.total_billing)` member ini, `status='paid'`, dalam rentang `period_start`–`period_end`. `"0.00"` kalau gak ada transaksi |
+| `spending_total` | string (numeric) | `SUM(pos_order.total_billing)` (`status='paid'`, acuan `order_out`) **DITAMBAH** `SUM(barber_booking.total_billing)` (`payment_status='paid'`, acuan `payment_at`) member ini, dalam rentang `period_start`–`period_end` (revisi 2026-09-15, sebelumnya cuma `pos_order`) — 1 angka gabungan, gak dipisah per sumber. `"0.00"` kalau gak ada transaksi sama sekali |
 | `tier.level`/`tier.name`/`tier.style_template` | — | Posisi tier member **saat ini** (`master_member.tier_level`, `LEFT JOIN master_member_tier_setting_detail`) — sama bentuk & sumbernya kayak `tier` yang dulu sempet ada di [ME.md](ME.md) (sekarang udah dipindah ke sini) |
 
 Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
@@ -66,7 +66,8 @@ Ini murni informasional (buat app nunjukin "evaluasi tier berikutnya: 24 Agustus
 
 - **`tier` dipindah dari [ME.md](ME.md) ke sini** (2026-08-21) — awalnya sempet ada di `/me`, dipindah biar `/me` murni data profil statis, sementara tier/spending/evaluasi (yang emang saling terkait & lebih sering di-refresh) ngumpul di 1 endpoint ini.
 - Cuma pakai `master_member_tier_setting` (**global**, 1 baris) — gak ada per-member override periode/jadwal.
-- `period_start`/`period_end` inklusif dua-duanya — `order_out` difilter `>= period_start` dan `< period_end + 1 hari`.
+- `period_start`/`period_end` inklusif dua-duanya — `order_out` (sisi `pos_order`) dan `payment_at` (sisi `barber_booking`) sama-sama difilter `>= period_start` dan `< period_end + 1 hari`.
+- **Sumber `spending_total` DIGABUNG** (revisi 2026-09-15) — booking barber (modul terpisah `sudobarber`, tabel `barber_booking`) yang lunas sekarang ikut kehitung, gak cuma transaksi POS/mobile lagi. Formula ini **WAJIB tetep sinkron** sama `fetchSpendingByMember()` di job [`membertierevaluation`](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md) (yang beneran ngubah `tier_level`) dan `TierSpending()` di sudobarber (`DOKUMENTASI API/CUSTOMER/MEMBER/TIER.md`) — kalau salah satu berubah lagi, dua lainnya wajib diupdate bareng.
 - `tier.name`/`tier.style_template` bisa `null` kalau admin belum pernah setup `master_member_tier_setting_detail` buat level yang lagi ditempatin member (`LEFT JOIN`, bukan `INNER JOIN` — biar response tetap muncul, cuma dua field itu yang kosong).
 - Mau daftar **SEMUA** tier (bukan cuma posisi sekarang) buat roadmap/"road to next tier"? Lihat [TIER LIST.md](TIER%20LIST.md).
 
@@ -75,3 +76,5 @@ Ini murni informasional (buat app nunjukin "evaluasi tier berikutnya: 24 Agustus
 - **Logic periode & query** (2026-08-21) — tervalidasi manual: config live sekarang `type=week`/`type_week_day=monday`, hari ini Jumat `2026-08-21` → `period_start` seharusnya `2026-08-17` (Senin minggu ini) dan `next_evaluation` seharusnya `2026-08-24` (Senin depan), dua-duanya dicocokin manual lewat `psql` dan bener. Query spending & tier jalan tanpa error. `go build`/`go vet` bersih.
 
 **⚠️ Belum tervalidasi lewat HTTP request** — belum sempat dicoba lewat request HTTP beneran (server dev butuh restart), dan belum ada data order asli buat mastiin angka `spending_total` yang bukan nol. Update bagian ini kalau udah dites.
+
+**Revisi 2026-09-15 (nambah `barber_booking` ke spending)** — perubahan query (`UNION ALL` pos_order + barber_booking) SAMA PERSIS formula yang udah divalidasi lewat `psql` & HTTP di sudobarber (lihat [`CUSTOMER/MEMBER/TIER.md`](../../../sudobarber/DOKUMENTASI%20API/CUSTOMER/MEMBER/TIER.md#tervalidasi-live-2026-09-15-direvisi-sore-hari-yang-sama)), jadi gak diulang manual di sini. `go build`/`go vet` bersih.

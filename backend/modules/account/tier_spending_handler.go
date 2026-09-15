@@ -48,6 +48,8 @@ type tierInfo struct {
 // `period_start`/`period_end`/`spending_total` -- lihat computePeriodStart(), window PERIODE BERJALAN
 // (anchor ke type_week_day/type_month_day sampai HARI INI), BEDA dari window "mundur N hari/
 // bulan" yang dipakai background job membertierevaluation (itu buat EVALUASI, ini buat DISPLAY).
+// `spending_total` sumbernya DIGABUNG pos_order + barber_booking (2026-09-15) -- lihat komentar
+// di query-nya di bawah.
 //
 // `next_evaluation` -- tanggal evaluasi BERIKUTNYA (bisa hari ini sendiri kalau hari ini
 // kebetulan cocok config & belum lewat jam 01:00), lihat computeNextEvaluation().
@@ -77,12 +79,26 @@ func (h *handler) TierSpending(c fiber.Ctx) error {
 	}
 	periodEnd := now.Format("2006-01-02")
 
+	// Digabung dari 2 sumber (2026-09-15) -- SAMA PERSIS formula fetchSpendingByMember() di
+	// sudocore2 (backend/modules/membertierevaluation) dan TierSpending() di sudobarber
+	// (backend/modules/member/member_tier.go), cuma beda window (ini periode berjalan buat
+	// preview, sudocore2 rolling window buat evaluasi beneran). Booking barber (modul
+	// sudobarber) yang lunas SEKARANG ikut kehitung, gak cuma pos_order lagi -- WAJIB tetep
+	// sinkron kalau formula di salah satu tempat berubah lagi.
 	var spending string
 	err = h.db.NewRaw(`
-		SELECT COALESCE(SUM(total_billing), 0) FROM pos_order
-		WHERE status = 'paid' AND member_id = ?
-		  AND order_out >= ?::date AND order_out < (?::date + interval '1 day')
-	`, memberID, periodStart, periodEnd).Scan(c.Context(), &spending)
+		SELECT COALESCE(SUM(total), 0) FROM (
+			SELECT total_billing AS total
+			FROM pos_order
+			WHERE status = 'paid' AND member_id = ?
+			  AND order_out >= ?::date AND order_out < (?::date + interval '1 day')
+			UNION ALL
+			SELECT total_billing AS total
+			FROM barber_booking
+			WHERE payment_status = 'paid' AND member_id = ?
+			  AND payment_at >= ?::date AND payment_at < (?::date + interval '1 day')
+		) combined
+	`, memberID, periodStart, periodEnd, memberID, periodStart, periodEnd).Scan(c.Context(), &spending)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data spending"))
 	}
