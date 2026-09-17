@@ -70,10 +70,11 @@ func fetchMe(ctx context.Context, db *bun.DB, memberID int64) (meResponse, error
 // evaluasi karena tier/spending/evaluasi itu satu concern yang sama (basisnya sama-sama dari
 // master_member_tier_setting), sementara /me murni data identitas/profil yang jarang berubah.
 //
-// Field yang SENGAJA gak diikutin: member_type_id (selalu kosong buat member yang daftar sendiri
-// lewat mobile), tier_level (lihat TierSpending()), is_active (redundan -- kalau session-nya
-// valid berarti pasti aktif, LoginOTP/LoginPin/ResetPin semua udah filter is_active=true),
-// contact_name/created_by/updated_by/updated_at (gak relevan buat customer).
+// Field yang SENGAJA gak diikutin: member_type_id (2026-09-10: sekarang selalu
+// auth.MemberTypeCustomerID buat member yang daftar sendiri lewat mobile -- nilainya konstan/gak
+// informatif buat customer, gak perlu diekspos), tier_level (lihat TierSpending()), is_active
+// (redundan -- kalau session-nya valid berarti pasti aktif, LoginOTP/LoginPin/ResetPin semua udah
+// filter is_active=true), contact_name/created_by/updated_by/updated_at (gak relevan buat customer).
 func (h *handler) Me(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 	memberID := middleware.MemberID(c)

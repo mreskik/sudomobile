@@ -294,10 +294,11 @@ func (h *handler) Register(c fiber.Ctx) error {
 	}()
 
 	member := MasterMember{
-		Code:        code,
-		Name:        req.Name,
-		PhoneNumber: req.PhoneNumber,
-		IsActive:    true,
+		Code:         code,
+		Name:         req.Name,
+		PhoneNumber:  req.PhoneNumber,
+		IsActive:     true,
+		MemberTypeID: MemberTypeCustomerID,
 	}
 	if _, err := tx.NewInsert().Model(&member).Exec(c.Context()); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal register"))

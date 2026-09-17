@@ -74,10 +74,25 @@ Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
   valid -- kalau kodenya salah tapi baris OTP-nya sendiri masih ada & valid, pesannya `"otp
   salah"` (bukan "tidak ditemukan"), biar user tau bedanya "kodenya emang keliru" vs "OTP-nya
   udah kadaluwarsa/gak pernah minta".
-- **`master_member` kolom lain** (`member_type_id`, `contact_name`, `email`, dst) **gak
-  diisi** -- member hasil register mobile app cuma punya `code`/`name`/`phone_number`/
-  `is_active`. Kalau nanti butuh field lain, itu didiskusikan/ditambah belakangan (kemungkinan
-  lewat endpoint update profile terpisah, bukan di sini).
+- **`master_member.member_type_id` selalu di-set ke `3`** (2026-09-10, `auth.MemberTypeCustomerID`)
+  -- member yang daftar sendiri lewat mobile app itu customer, bukan staff/employee/dll, jadi
+  langsung ditandain gitu pas dibuat (sebelumnya field ini sengaja dibiarin kosong/`NULL`,
+  diubah karena sudobarber butuh filter `member_type_id` yang pasti buat modul Customer
+  Management-nya, lihat `sudobarber/DOKUMENTASI API/ADMIN/BARBER MANAGEMENT/CUSTOMER
+  MANAGEMENT.md`). Kenapa `3` spesifik: itu id row "Customer" di `master_member_type`,
+  dipastikan tetap ada & tetap `3` lewat seeder idempotent
+  `sudocore2/migration/176_seed_master_member_type_customer.sql` -- **jangan ganti angka ini**
+  tanpa ganti juga di migration seeder itu + `sudobarber` (`membercustomer_service.go`,
+  const `memberTypeCustomerID`), keduanya harus tetap sinkron ke row yang sama.
+- **`master_member` kolom lain** (`contact_name`, `email`, dst) **gak diisi** -- member hasil
+  register mobile app cuma punya `code`/`name`/`phone_number`/`is_active`/`member_type_id`.
+  Kalau nanti butuh field lain, itu didiskusikan/ditambah belakangan (kemungkinan lewat
+  endpoint update profile terpisah, bukan di sini).
+
+## Tervalidasi live (2026-09-10)
+
+- Insert `master_member` lewat model `MasterMember` yang udah dipetain `MemberTypeID:
+  MemberTypeCustomerID` -> `member_type_id` ke-insert `3`, dicek langsung ke kolomnya.
 
 ## Tervalidasi live (2026-08-20)
 

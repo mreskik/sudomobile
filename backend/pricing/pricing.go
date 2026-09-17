@@ -1,8 +1,16 @@
 // Package pricing: logic resolve harga/pajak menu yang dipakai BARENG oleh lebih dari 1 endpoint
 // (visit-purpose detail, order/calculate, order/create nanti) -- diekstrak dari
 // modules/visitpurpose/visitpurpose_handler.go (2026-08-24) SUPAYA cuma ada 1 sumber kebenaran
-// buat perhitungan harga/pajak. JANGAN duplikat logic ini di package lain -- kalau ada endpoint
-// baru yang butuh hitung harga/pajak item, import package ini.
+// buat perhitungan harga/pajak DI DALAM REPO INI. JANGAN duplikat logic ini di package lain
+// DI SUDOMOBILE -- kalau ada endpoint baru di sini yang butuh hitung harga/pajak item, import
+// package ini.
+//
+// TRIPLIKASI LINTAS REPO (2026-09-11): formula pajak/package/harga di package ini adalah port
+// dari POS/MenuServices.php (app/Services/MenuServices.php::GetMasterMenuList(), method PHP,
+// repo terpisah) -- DAN sudah di-port ULANG SEKALI LAGI (independen, gak share code) ke
+// sudobarber/backend/modules/admin/barberservice/. Ketiga repo baca DB yang sama (db_sudocore_dev)
+// tapi gak ada shared library. Kalau ubah rule di sini (atau di POS), cek juga apa perubahannya
+// perlu ditiru manual ke 2 tempat lain itu -- gak ada mekanisme sync otomatis.
 package pricing
 
 import (

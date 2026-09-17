@@ -46,16 +46,25 @@ type MobileMemberPin struct {
 	UpdatedAt *time.Time `bun:"updated_at"`
 }
 
+// MemberTypeCustomerID: id tetap master_member_type "Customer" -- HARDCODE, sama alasan &
+// sumber kebenaran yang sama dipakai sudobarber (backend/modules/admin/membercustomer,
+// const memberTypeCustomerID = 3 di situ juga). Id ini dipastikan tetap ada & tetap
+// "Customer" lewat seeder idempotent sudocore2/migration/176_seed_master_member_type_customer.sql
+// -- jangan ganti angka ini tanpa ganti juga di migration seeder + sudobarber.
+const MemberTypeCustomerID = 3
+
 // MasterMember: subset kolom master_member (tabel inti ERP, BUKAN mobile-only, makanya tetep
 // prefix "master_") yang dibutuhin buat insert dari register -- bukan model lengkap
-// (member_type_id/contact_name/email/dst sengaja gak dipetain, kosong/null buat member hasil
-// daftar sendiri lewat mobile app).
+// (contact_name/email/dst sengaja gak dipetain, kosong/null buat member hasil daftar sendiri
+// lewat mobile app). member_type_id DIPETAIN & selalu di-set MemberTypeCustomerID (2026-09-10)
+// -- member yang daftar sendiri lewat mobile app itu customer, bukan staff/employee/dll.
 type MasterMember struct {
 	bun.BaseModel `bun:"table:master_member,alias:mm"`
 
-	ID          int64  `bun:"id,pk,autoincrement"`
-	Code        string `bun:"code,notnull"`
-	Name        string `bun:"name,notnull"`
-	PhoneNumber string `bun:"phone_number"`
-	IsActive    bool   `bun:"is_active"`
+	ID           int64  `bun:"id,pk,autoincrement"`
+	Code         string `bun:"code,notnull"`
+	Name         string `bun:"name,notnull"`
+	PhoneNumber  string `bun:"phone_number"`
+	IsActive     bool   `bun:"is_active"`
+	MemberTypeID int64  `bun:"member_type_id"`
 }
