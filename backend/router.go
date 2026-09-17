@@ -142,6 +142,46 @@ func RegisterRoutes(app *fiber.App) {
 	accountRouter.Post("/photo", accountHandler.UpdatePhoto)
 	accountRouter.Get("/tier-spending", accountHandler.TierSpending)
 
+	// QR ORDER -- SENGAJA di luar group `root` (gak lewat middleware.AppSetting sama sekali,
+	// keputusan sesi 2026-09-17). Identitas tenant/branch/visit-purpose gantiin X-App-Setting
+	// lewat 4 query param (db_code/company_code/branch_code/visit_purpose_code, WAJIB di semua
+	// endpoint QR Order, lihat modules/qrorder/context.go), bukan header terenkripsi. Publik
+	// total -- gak ada Authorization juga, customer-nya TAMU (bukan member). Lihat DOKUMENTASI
+	// API/QR ORDER/KETENTUAN QR ORDER.md.
+	// PENTING: prefix-nya SENGAJA "/qr-order" (BUKAN "/api/qr-order") -- middleware.AppSetting
+	// di atas didaftarin via app.Group("/api", ...), yang di Fiber v3 nge-Use() SEMUA path yang
+	// DIAWALI "/api" (prefix match di level app, bukan di-scope ke grup Go-nya doang) -- kepentok
+	// beneran pas testing live (2026-09-17): "/api/qr-order/create-order" tetep ketangkep
+	// AppSetting walau didaftarin lewat group terpisah, balikin "X-App-Setting wajib diisi" ke
+	// SEMUA request QR Order. Pindah prefix ke "/qr-order" (di luar "/api" sama sekali) itu yang
+	// beneran lepas dari middleware itu, dites & kebukti jalan.
+	qrOrderHandler := order.NewQRHandler(config.DB)
+	qrOrderRouter := app.Group("/qr-order")
+	qrOrderRouter.Post("/create-order", qrOrderHandler.Create)
+	// Polling status pembayaran (sambil QR ditampilin) -- REUSE SyncPaymentStatus() yang sama
+	// dipakai member app, "kepemilikan"-nya dicek dari branch (4 kode), bukan member/token. Lihat
+	// DOKUMENTASI API/QR ORDER/PAYMENT STATUS.md.
+	qrOrderRouter.Get("/order/:order_number/payment-status", qrOrderHandler.PaymentStatus)
+	// Preview harga/pajak sebelum submit -- REUSE calculateOrder() yang sama dipakai Create().
+	// Lihat DOKUMENTASI API/QR ORDER/CALCULATE.md.
+	qrOrderRouter.Post("/calculate", qrOrderHandler.Calculate)
+	// Struk lengkap (breakdown item + status bayar live-synced + QR ulang kalau masih pending) --
+	// REUSE resolveOrderDetailCore() yang sama dipakai GetDetail() member app. Lihat DOKUMENTASI
+	// API/QR ORDER/ORDER DETAIL.md.
+	qrOrderRouter.Get("/order/:order_number", qrOrderHandler.GetDetail)
+
+	// Pohon menu + harga + pajak + package -- REUSE resolveVisitPurposeDetail() yang sama dipakai
+	// member app (branch_id/visit_purpose_id dari 4 kode, bukan path). Lihat DOKUMENTASI API/QR
+	// ORDER/GET VISIT PURPOSE DETAIL.md.
+	qrVisitPurposeHandler := visitpurpose.NewQRHandler(config.DB)
+	qrOrderRouter.Get("/visit-purpose/detail", qrVisitPurposeHandler.GetDetail)
+
+	// Daftar payment method (gateway-only, scope branch+visit_purpose) -- REUSE
+	// resolvePaymentMethodList() yang sama dipakai member app. Lihat DOKUMENTASI API/QR ORDER/GET
+	// PAYMENT METHOD LIST.md.
+	qrPaymentMethodHandler := paymentmethod.NewQRHandler(config.DB)
+	qrOrderRouter.Get("/payment-method", qrPaymentMethodHandler.GetList)
+
 	// Static file serving -- root-nya config.StoragePath (default "./storage" folder sendiri,
 	// atau di-mount ke storage sudocore2 langsung lewat env STORAGE_PATH, lihat
 	// backend/config/storage.go). Path-nya harus tetep match savePhoto() di

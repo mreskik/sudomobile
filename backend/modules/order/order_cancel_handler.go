@@ -44,7 +44,7 @@ func (h *handler) CancelOrder(c fiber.Ctx) error {
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
 	}
-	if order.MemberID != memberID {
+	if !order.isMemberOwner(memberID) {
 		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 	}
 	if order.Status != "pending" {

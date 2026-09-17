@@ -1,6 +1,7 @@
 package paymentmethod
 
 import (
+	"context"
 	"strconv"
 
 	"sudomobile/backend/helpers"
@@ -60,8 +61,20 @@ func (h *handler) GetList(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
 	}
 
+	list, err := resolvePaymentMethodList(c.Context(), h.db, branchID, visitPurposeID)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
+	}
+
+	return c.JSON(res.Success().SetData(list))
+}
+
+// resolvePaymentMethodList: query INTI GetList() di atas, DIPISAH (2026-09-17) biar dipakai
+// BARENG versi QR Order (paymentmethod_qr_handler.go) tanpa duplikasi query -- SATU tempat
+// nulis filter gateway-only + scoping branch/visit_purpose, siapa pun pemanggilnya.
+func resolvePaymentMethodList(ctx context.Context, db *bun.DB, branchID, visitPurposeID int) ([]paymentMethodListItem, error) {
 	list := []paymentMethodListItem{}
-	err = h.db.NewRaw(`
+	err := db.NewRaw(`
 		SELECT DISTINCT mpm.id, mpm.name, mpm.code, mpm.color_theme
 		FROM master_payment_method mpm
 		WHERE mpm.is_active = true AND COALESCE(mpm.is_deleted, false) = false
@@ -83,10 +96,6 @@ func (h *handler) GetList(c fiber.Ctx) error {
 				)
 			)
 		ORDER BY mpm.name ASC
-	`, branchID, visitPurposeID).Scan(c.Context(), &list)
-	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
-	}
-
-	return c.JSON(res.Success().SetData(list))
+	`, branchID, visitPurposeID).Scan(ctx, &list)
+	return list, err
 }

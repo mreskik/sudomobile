@@ -1,6 +1,7 @@
 package visitpurpose
 
 import (
+	"context"
 	"strconv"
 
 	"sudomobile/backend/helpers"
@@ -167,24 +168,42 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
 	}
 
-	cfg, err := pricing.ResolveVisitPurposeConfig(c.Context(), h.db, branchID, visitPurposeID)
+	detail, errMsg, err := resolveVisitPurposeDetail(c.Context(), h.db, branchID, visitPurposeID)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
 	}
-	if cfg == nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit purpose tidak ditemukan"))
+	if errMsg != "" {
+		return c.JSON(res.SetCode(100).SetMessage(errMsg))
 	}
 
-	taxRates, err := pricing.FetchTaxRates(c.Context(), h.db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)
+	return c.JSON(res.Success().SetData(detail))
+}
+
+// resolveVisitPurposeDetail: logic INTI GetDetail() di atas, DIPISAH (2026-09-17) biar dipakai
+// BARENG versi QR Order (visitpurpose_qr_handler.go, GetDetail()) TANPA duplikasi query
+// menu/package -- SATU tempat nulis resolusi tree+harga+pajak, siapa pun pemanggilnya (member
+// app lewat branch_id/visit_purpose_id di path, QR Order lewat 4 kode identitas). Balikin
+// (nil, "pesan error", nil) buat visit purpose yang gak ketemu/gak cocok scope (BUKAN error
+// server), (nil, "", err) buat error DB beneran.
+func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitPurposeID int) (*visitPurposeDetail, string, error) {
+	cfg, err := pricing.ResolveVisitPurposeConfig(ctx, db, branchID, visitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data pajak"))
+		return nil, "", err
+	}
+	if cfg == nil {
+		return nil, "visit purpose tidak ditemukan", nil
+	}
+
+	taxRates, err := pricing.FetchTaxRates(ctx, db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)
+	if err != nil {
+		return nil, "", err
 	}
 
 	// COALESCE(mpd.is_deleted, false) -- kolomnya NULLABLE dan di data real isinya NULL (bukan
 	// literal false) buat baris yang emang gak dihapus, `is_deleted = false` doang gak match
 	// NULL di SQL (ketauan pas tes live 2026-08-24), makanya di-COALESCE dulu.
 	rows := []menuItemRow{}
-	err = h.db.NewRaw(`
+	err = db.NewRaw(`
 		SELECT
 			mic.id AS category_id, mic.name AS category_name,
 			misc.id AS subcategory_id, misc.name AS subcategory_name,
@@ -200,17 +219,17 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
 			AND mi.item_status = '1'
 		ORDER BY mic.name ASC, misc.name ASC, mi.item_name ASC
-	`, cfg.MenuTemplateID).Scan(c.Context(), &rows)
+	`, cfg.MenuTemplateID).Scan(ctx, &rows)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data menu"))
+		return nil, "", err
 	}
 
-	packages, err := pricing.FetchPackages(c.Context(), h.db, itemIDsOf(rows), cfg, taxRates)
+	packages, err := pricing.FetchPackages(ctx, db, itemIDsOf(rows), cfg, taxRates)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data package"))
+		return nil, "", err
 	}
 
-	return c.JSON(res.Success().SetData(visitPurposeDetail{
+	return &visitPurposeDetail{
 		VisitPurposeID:    int64(visitPurposeID),
 		MenuTemplateID:    cfg.MenuTemplateID,
 		FlagInclusiveTax:  cfg.InclusivePrice,
@@ -222,7 +241,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		Pb1Rate:           taxRates.Rate(cfg.Pb1),
 		OrderFee:          cfg.OrderFee,
 		Categories:        buildMenuTree(rows, cfg, taxRates, packages),
-	}))
+	}, "", nil
 }
 
 // itemIDsOf: daftar item_id UNIK dari hasil query menu (buat batch-query package sekali,

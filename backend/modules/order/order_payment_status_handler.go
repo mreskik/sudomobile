@@ -21,9 +21,20 @@ type paymentStatusResult struct {
 // orderOwnerRow: hasil lookup mb_order buat cek kepemilikan -- BEDA dari Kiosk (POS internal
 // staff, gak ada konsep "punya siapa") -- sudomobile customer-facing, jadi WAJIB mastiin
 // member yang lagi login itu emang pemilik order ini sebelum ngasih tau status pembayarannya.
+// MemberID *int64 (2026-09-17, migration sudocore2 208) -- mb_order.member_id sekarang NULLABLE
+// (order QR Order = tamu, gak ada member). order_number sembarangan gak difilter member_id di
+// SQL (dicek manual di Go SETELAH fetch, lihat pemanggil), jadi order QR juga bisa "kena
+// scan" di sini kalau member iseng nebak order_number-nya -- WAJIB pointer biar gak Scan error,
+// perbandingan kepemilikan di bawah otomatis anggap NULL != member manapun (isMemberOwner()).
 type orderOwnerRow struct {
-	MemberID int64  `bun:"member_id"`
+	MemberID *int64 `bun:"member_id"`
 	Status   string `bun:"status"`
+}
+
+// isMemberOwner: true kalau order ini emang milik memberID -- order tanpa member (QR Order/tamu,
+// MemberID nil) otomatis false buat SIAPA PUN, gak ada member yang "punya" order tamu.
+func (o orderOwnerRow) isMemberOwner(memberID int64) bool {
+	return o.MemberID != nil && *o.MemberID == memberID
 }
 
 // CheckPaymentStatus: GET /api/order/:order_number/payment-status -- dipanggil buat POLLING
@@ -63,7 +74,7 @@ func (h *handler) CheckPaymentStatus(c fiber.Ctx) error {
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
 	}
-	if order.MemberID != memberID {
+	if !order.isMemberOwner(memberID) {
 		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 	}
 

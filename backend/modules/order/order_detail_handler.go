@@ -1,6 +1,7 @@
 package order
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -11,8 +12,12 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// MemberID *int64 (2026-09-17, migration sudocore2 208) -- mb_order.member_id sekarang NULLABLE
+// (order QR Order = tamu). Pointer WAJIB biar gak Scan error; kepemilikan dicek di GetDetail()
+// lewat isMemberOwner() (order_payment_status_handler.go) -- order tamu otomatis "bukan milik"
+// member manapun.
 type orderDetailHeader struct {
-	MemberID            int64   `bun:"member_id"`
+	MemberID            *int64  `bun:"member_id"`
 	OrderNumber         string  `bun:"order_number"`
 	Status              string  `bun:"status"`
 	CreatedAt           string  `bun:"created_at"`
@@ -125,82 +130,13 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
 	}
-	if header.MemberID != memberID {
+	if header.MemberID == nil || *header.MemberID != memberID {
 		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 	}
 
-	items := []orderDetailItem{}
-	if err := h.db.NewRaw(`
-		SELECT mod.ulid, mod.menu_id, mi.item_name, mod.qty, mod.notes, mod.price, mod.tax_type, mod.tax_rate,
-			mod.dpp, mod.net_dpp, mod.tax_amount, mod.total, mod.promo_id, mod.discount_percent, mod.discount_amount
-		FROM mb_order_detail mod
-		LEFT JOIN master_item mi ON mi.id = mod.menu_id
-		WHERE mod.order_number = ?
-		ORDER BY mod.created_at ASC
-	`, orderNumber).Scan(ctx, &items); err != nil {
+	items, payment, err := resolveOrderDetailCore(ctx, h.db, orderNumber, header.Status)
+	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data item order"))
-	}
-
-	if len(items) > 0 {
-		ulids := make([]string, 0, len(items))
-		for _, item := range items {
-			ulids = append(ulids, item.ULID)
-		}
-
-		packages := []orderDetailPackageRow{}
-		if err := h.db.NewRaw(`
-			SELECT modp.mb_order_detail_ulid, modp.menu_package_id, modp.menu_id, mi.item_name,
-				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.dpp, modp.net_dpp, modp.tax_amount, modp.total
-			FROM mb_order_detail_package modp
-			LEFT JOIN master_item mi ON mi.id = modp.menu_id
-			WHERE modp.mb_order_detail_ulid IN (?)
-			ORDER BY modp.mb_order_detail_ulid ASC
-		`, bun.In(ulids)).Scan(ctx, &packages); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal ambil data package order"))
-		}
-
-		packagesByParent := map[string][]orderDetailPackageItem{}
-		for _, p := range packages {
-			packagesByParent[p.ParentULID] = append(packagesByParent[p.ParentULID], p.orderDetailPackageItem)
-		}
-		for i := range items {
-			pkgs := packagesByParent[items[i].ULID]
-			if pkgs == nil {
-				pkgs = []orderDetailPackageItem{}
-			}
-			items[i].Packages = pkgs
-		}
-	}
-
-	payment := orderDetailPayment{Status: header.Status}
-	status, gatewayResp, errMsg, syncErr := SyncPaymentStatus(ctx, h.db, orderNumber, header.Status)
-	if syncErr == nil && errMsg == "" {
-		payment.Status = status
-		if status == "pending" && gatewayResp != nil {
-			payment.VendorQRString = gatewayResp.VendorQRString
-			payment.VendorQRURL = gatewayResp.VendorQRURL
-			payment.ExpiredAt = gatewayResp.ExpiredAt
-		}
-	}
-	// SyncPaymentStatus gagal (network/db) atau belum pernah ada attempt sama sekali -- BUKAN
-	// dianggap fatal buat GetDetail() (beda dari CheckPaymentStatus() yang emang tujuan utamanya
-	// itu) -- tetap balikin detail order-nya, payment.status fallback ke status mb_order apa
-	// adanya, tanpa QR.
-
-	var pmRow struct {
-		PaymentMethodID   *int64  `bun:"payment_method_id"`
-		PaymentMethodName *string `bun:"name"`
-	}
-	if err := h.db.NewRaw(`
-		SELECT latest_pr.payment_method_id, mpm.name
-		FROM (
-			SELECT payment_method_id FROM mb_order_payment_request
-			WHERE order_number = ? ORDER BY created_at DESC LIMIT 1
-		) latest_pr
-		LEFT JOIN master_payment_method mpm ON mpm.id = latest_pr.payment_method_id
-	`, orderNumber).Scan(ctx, &pmRow); err == nil {
-		payment.PaymentMethodID = pmRow.PaymentMethodID
-		payment.PaymentMethodName = pmRow.PaymentMethodName
 	}
 
 	return c.JSON(res.Success().SetData(orderDetailResult{
@@ -220,4 +156,90 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		Items:               items,
 		Payment:             payment,
 	}))
+}
+
+// resolveOrderDetailCore: items+packages+payment INTI GetDetail() di atas, DIPISAH (2026-09-17)
+// biar dipakai BARENG versi QR Order (order_qr_detail_handler.go, GetDetail()) TANPA duplikasi
+// query mb_order_detail/_package & sync ke service payment -- keduanya PERSIS sama di sini, yang
+// beda cuma header & cara ngecek kepemilikan (member_id+token vs order_source+branch), makanya
+// tetep di query terpisah masing-masing pemanggil (lihat qrOrderDetailHeader). status yang
+// dioper = mb_order.status TERBARU, dipakai basis SyncPaymentStatus() persis kayak sebelum
+// diekstrak. Error di sini SELALU error DB beneran (query item/package gagal) -- gak ada cabang
+// "business validation" kayak resolveVisitPurposeDetail()/resolvePaymentMethodList(), makanya
+// gak butuh return errMsg terpisah.
+func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status string) ([]orderDetailItem, orderDetailPayment, error) {
+	items := []orderDetailItem{}
+	if err := db.NewRaw(`
+		SELECT mod.ulid, mod.menu_id, mi.item_name, mod.qty, mod.notes, mod.price, mod.tax_type, mod.tax_rate,
+			mod.dpp, mod.net_dpp, mod.tax_amount, mod.total, mod.promo_id, mod.discount_percent, mod.discount_amount
+		FROM mb_order_detail mod
+		LEFT JOIN master_item mi ON mi.id = mod.menu_id
+		WHERE mod.order_number = ?
+		ORDER BY mod.created_at ASC
+	`, orderNumber).Scan(ctx, &items); err != nil {
+		return nil, orderDetailPayment{}, err
+	}
+
+	if len(items) > 0 {
+		ulids := make([]string, 0, len(items))
+		for _, item := range items {
+			ulids = append(ulids, item.ULID)
+		}
+
+		packages := []orderDetailPackageRow{}
+		if err := db.NewRaw(`
+			SELECT modp.mb_order_detail_ulid, modp.menu_package_id, modp.menu_id, mi.item_name,
+				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.dpp, modp.net_dpp, modp.tax_amount, modp.total
+			FROM mb_order_detail_package modp
+			LEFT JOIN master_item mi ON mi.id = modp.menu_id
+			WHERE modp.mb_order_detail_ulid IN (?)
+			ORDER BY modp.mb_order_detail_ulid ASC
+		`, bun.In(ulids)).Scan(ctx, &packages); err != nil {
+			return nil, orderDetailPayment{}, err
+		}
+
+		packagesByParent := map[string][]orderDetailPackageItem{}
+		for _, p := range packages {
+			packagesByParent[p.ParentULID] = append(packagesByParent[p.ParentULID], p.orderDetailPackageItem)
+		}
+		for i := range items {
+			pkgs := packagesByParent[items[i].ULID]
+			if pkgs == nil {
+				pkgs = []orderDetailPackageItem{}
+			}
+			items[i].Packages = pkgs
+		}
+	}
+
+	payment := orderDetailPayment{Status: status}
+	syncStatus, gatewayResp, errMsg, syncErr := SyncPaymentStatus(ctx, db, orderNumber, status)
+	if syncErr == nil && errMsg == "" {
+		payment.Status = syncStatus
+		if syncStatus == "pending" && gatewayResp != nil {
+			payment.VendorQRString = gatewayResp.VendorQRString
+			payment.VendorQRURL = gatewayResp.VendorQRURL
+			payment.ExpiredAt = gatewayResp.ExpiredAt
+		}
+	}
+	// SyncPaymentStatus gagal (network/db) atau belum pernah ada attempt sama sekali -- BUKAN
+	// dianggap fatal (beda dari CheckPaymentStatus() yang emang tujuan utamanya itu) -- tetap
+	// balikin detail order-nya, payment.status fallback ke status mb_order apa adanya, tanpa QR.
+
+	var pmRow struct {
+		PaymentMethodID   *int64  `bun:"payment_method_id"`
+		PaymentMethodName *string `bun:"name"`
+	}
+	if err := db.NewRaw(`
+		SELECT latest_pr.payment_method_id, mpm.name
+		FROM (
+			SELECT payment_method_id FROM mb_order_payment_request
+			WHERE order_number = ? ORDER BY created_at DESC LIMIT 1
+		) latest_pr
+		LEFT JOIN master_payment_method mpm ON mpm.id = latest_pr.payment_method_id
+	`, orderNumber).Scan(ctx, &pmRow); err == nil {
+		payment.PaymentMethodID = pmRow.PaymentMethodID
+		payment.PaymentMethodName = pmRow.PaymentMethodName
+	}
+
+	return items, payment, nil
 }

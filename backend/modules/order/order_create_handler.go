@@ -154,8 +154,8 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, service_charge, platform_fee, delivery_cost,
 				sub_total, total_discount, total_tax, total_billing,
-				flag_inclusive_tax, customer_phone_number, company_id
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?)
+				flag_inclusive_tax, customer_phone_number, company_id, order_source
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'mobile')
 		`, orderNumber, body.BranchID, memberID, body.VisitPurposeID,
 			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID,
@@ -164,40 +164,49 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 			return err
 		}
 
-		for _, item := range result.Items {
-			detailULID := generateULID()
+		return insertOrderItems(ctx, tx, orderNumber, result)
+	})
+}
+
+// insertOrderItems: insert mb_order_detail + mb_order_detail_package buat semua item hasil
+// calculateOrder() -- DIPISAH dari insertOrder() (2026-09-17) biar dipakai BARENG QR Order
+// (insertQROrder(), order_qr_create_handler.go) tanpa duplikasi ~30 baris logic snapshot
+// harga/pajak yang sama persis. Header mb_order-nya beda (member vs tamu), tapi detail item-nya
+// SELALU sama bentuknya -- satu tempat nulis, siapa pun pemanggilnya.
+func insertOrderItems(ctx context.Context, tx bun.Tx, orderNumber string, result *calculateResult) error {
+	for _, item := range result.Items {
+		detailULID := generateULID()
+		_, err := tx.NewRaw(`
+			INSERT INTO mb_order_detail (
+				ulid, order_number, pricelist_detail_id, menu_id, category_id, subcategory_id,
+				qty, flag_inclusive_tax, price, tax_id, tax_type, tax_rate, tax_amount,
+				dpp, net_dpp, promo_id, discount_percent, discount_amount, total, notes
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, detailULID, orderNumber, item.PricelistDetailID, item.MenuID, item.CategoryID, item.SubcategoryID,
+			item.Qty, result.FlagInclusiveTax, item.Price, item.TaxID, nullIfEmpty(item.TaxType), taxRateOrZero(item.TaxRate), item.TaxAmount,
+			item.DPP, item.NetDPP, item.PromoID, item.DiscountPercent, item.DiscountAmount, item.Total, nullIfEmpty(item.Notes),
+		).Exec(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, pkg := range item.Packages {
 			_, err := tx.NewRaw(`
-				INSERT INTO mb_order_detail (
-					ulid, order_number, pricelist_detail_id, menu_id, category_id, subcategory_id,
+				INSERT INTO mb_order_detail_package (
+					ulid, mb_order_detail_ulid, menu_package_id, menu_id, category_id, subcategory_id,
 					qty, flag_inclusive_tax, price, tax_id, tax_type, tax_rate, tax_amount,
-					dpp, net_dpp, promo_id, discount_percent, discount_amount, total, notes
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			`, detailULID, orderNumber, item.PricelistDetailID, item.MenuID, item.CategoryID, item.SubcategoryID,
-				item.Qty, result.FlagInclusiveTax, item.Price, item.TaxID, nullIfEmpty(item.TaxType), taxRateOrZero(item.TaxRate), item.TaxAmount,
-				item.DPP, item.NetDPP, item.PromoID, item.DiscountPercent, item.DiscountAmount, item.Total, nullIfEmpty(item.Notes),
+					dpp, net_dpp, total, notes
+				) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+			`, generateULID(), detailULID, pkg.MenuPackageID, pkg.ItemID,
+				pkg.Qty, result.FlagInclusiveTax, pkg.Price, pkg.TaxID, nullIfEmpty(pkg.TaxType), taxRateOrZero(pkg.TaxRate), pkg.TaxAmount,
+				pkg.DPP, pkg.NetDPP, pkg.Total,
 			).Exec(ctx)
 			if err != nil {
 				return err
 			}
-
-			for _, pkg := range item.Packages {
-				_, err := tx.NewRaw(`
-					INSERT INTO mb_order_detail_package (
-						ulid, mb_order_detail_ulid, menu_package_id, menu_id, category_id, subcategory_id,
-						qty, flag_inclusive_tax, price, tax_id, tax_type, tax_rate, tax_amount,
-						dpp, net_dpp, total, notes
-					) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-				`, generateULID(), detailULID, pkg.MenuPackageID, pkg.ItemID,
-					pkg.Qty, result.FlagInclusiveTax, pkg.Price, pkg.TaxID, nullIfEmpty(pkg.TaxType), taxRateOrZero(pkg.TaxRate), pkg.TaxAmount,
-					pkg.DPP, pkg.NetDPP, pkg.Total,
-				).Exec(ctx)
-				if err != nil {
-					return err
-				}
-			}
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 // requestPaymentForOrder: insert mb_order_payment_request SEBELUM manggil service payment
