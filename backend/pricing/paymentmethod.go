@@ -9,7 +9,7 @@ import (
 // PaymentMethod: hasil ResolvePaymentMethod() -- 1 baris master_payment_method yang lolos
 // filter yang SAMA PERSIS kayak GET .../payment-method (gateway-only + scoped branch+visit
 // purpose, hormatin flag_all_branch/flag_all_visitpurpose) -- lihat
-// DOKUMENTASI API/BRANCH/GET PAYMENT METHOD LIST.md.
+// DOKUMENTASI API/MOBILE/MENU/GET PAYMENT METHOD LIST.md.
 type PaymentMethod struct {
 	ID                 int64  `bun:"id"`
 	Name               string `bun:"name"`

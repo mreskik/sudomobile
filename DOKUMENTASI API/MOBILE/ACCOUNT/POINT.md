@@ -20,7 +20,7 @@ Authorization: Bearer <token>
 ## Catatan
 
 - **Bukan `SUM`** — poin terkini itu `balance_after` di baris **TERAKHIR** `member_point_ledger` (`ORDER BY created_at DESC, id DESC LIMIT 1`), sama persis formula `GetPoint()` di `sudocore2`. Sama pola kayak [BALANCE.md](BALANCE.md), cuma sumber tabelnya beda.
-- Poin didapat otomatis lewat background job [`pointcheck`](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/POINTCHECK.md) (`sudocore2`) — evaluasi tiap 5 menit dari order `paid` yang match `master_member_point_config`, gak ada aksi manual dari customer buat dapetin poin.
+- Poin didapat otomatis lewat background job [`pointcheck`](../../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/POINTCHECK.md) (`sudocore2`) — evaluasi tiap 5 menit dari order `paid` yang match `master_member_point_config`, gak ada aksi manual dari customer buat dapetin poin.
 - Mau riwayat transaksi, bukan cuma angka terkini? Lihat [POINT HISTORY.md](POINT%20HISTORY.md).
 
 ## Tervalidasi

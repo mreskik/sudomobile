@@ -1,6 +1,6 @@
 # Account - Tier and Spending Information
 
-Posisi tier member yang lagi login + progress spending **periode berjalan sekarang** + jadwal evaluasi berikutnya — digabung 1 endpoint (2026-08-21) karena ketiganya satu concern yang sama, basisnya sama-sama dari [MASTER MEMBER TIER SETTING.md](../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20MEMBER%20TIER%20SETTING.md) di ERP.
+Posisi tier member yang lagi login + progress spending **periode berjalan sekarang** + jadwal evaluasi berikutnya — digabung 1 endpoint (2026-08-21) karena ketiganya satu concern yang sama, basisnya sama-sama dari [MASTER MEMBER TIER SETTING.md](../../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20MEMBER%20TIER%20SETTING.md) di ERP.
 
 ```
 GET /api/account/tier-spending
@@ -48,7 +48,7 @@ Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
 
 ## Cara hitung `period_start` (spending periode berjalan)
 
-**Beda dari window yang dipakai background job [`membertierevaluation`](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md)** — job itu ngitung window **mundur** (trailing 7 hari/1 bulan dari hari evaluasi) buat nentuin naik/turun tier. `period_start` di sini di-anchor ke `type_week_day`/`type_month_day` sebagai **awal periode**, sampai **hari ini** — beda konsep, buat kebutuhan beda (progress display real-time vs evaluasi terjadwal).
+**Beda dari window yang dipakai background job [`membertierevaluation`](../../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md)** — job itu ngitung window **mundur** (trailing 7 hari/1 bulan dari hari evaluasi) buat nentuin naik/turun tier. `period_start` di sini di-anchor ke `type_week_day`/`type_month_day` sebagai **awal periode**, sampai **hari ini** — beda konsep, buat kebutuhan beda (progress display real-time vs evaluasi terjadwal).
 
 - **`type = "week"`**: tanggal terdekat ke belakang (**termasuk hari ini** kalau kebetulan cocok) yang nama harinya sama kayak `type_week_day`. Contoh: `type_week_day: "monday"`, hari ini Jumat → `period_start` = Senin minggu ini.
 - **`type = "month"`**: tanggal `type_month_day` **bulan ini**, kalau tanggal hari ini **udah nyampe/lewat** `type_month_day`. Kalau **belum nyampe**, tanggal `type_month_day` **bulan kemarin**. Contoh: `type_month_day: 20`, hari ini tanggal `5` → `period_start` = tanggal `20` bulan lalu.
@@ -60,14 +60,14 @@ Kebalikan `period_start` — nyari **maju**, bukan mundur:
 - **`type = "week"`**: tanggal terdekat ke **depan** (**termasuk hari ini** kalau kebetulan cocok) yang nama harinya sama kayak `type_week_day`.
 - **`type = "month"`**: tanggal `type_month_day` **bulan ini**, kalau tanggal hari ini **belum lewat** `type_month_day`. Kalau **udah lewat**, tanggal `type_month_day` **bulan depan**.
 
-Ini murni informasional (buat app nunjukin "evaluasi tier berikutnya: 24 Agustus") — **bukan** waktu presisi kapan background job jalan (job-nya sendiri jalan **tiap hari jam 01:00**, cuma beneran ngapa-ngapain di tanggal yang match, lihat [MEMBER TIER EVALUATION.md](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md)).
+Ini murni informasional (buat app nunjukin "evaluasi tier berikutnya: 24 Agustus") — **bukan** waktu presisi kapan background job jalan (job-nya sendiri jalan **tiap hari jam 01:00**, cuma beneran ngapa-ngapain di tanggal yang match, lihat [MEMBER TIER EVALUATION.md](../../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md)).
 
 ## Catatan
 
 - **`tier` dipindah dari [ME.md](ME.md) ke sini** (2026-08-21) — awalnya sempet ada di `/me`, dipindah biar `/me` murni data profil statis, sementara tier/spending/evaluasi (yang emang saling terkait & lebih sering di-refresh) ngumpul di 1 endpoint ini.
 - Cuma pakai `master_member_tier_setting` (**global**, 1 baris) — gak ada per-member override periode/jadwal.
 - `period_start`/`period_end` inklusif dua-duanya — `order_out` (sisi `pos_order`) dan `payment_at` (sisi `barber_booking`) sama-sama difilter `>= period_start` dan `< period_end + 1 hari`.
-- **Sumber `spending_total` DIGABUNG** (revisi 2026-09-15) — booking barber (modul terpisah `sudobarber`, tabel `barber_booking`) yang lunas sekarang ikut kehitung, gak cuma transaksi POS/mobile lagi. Formula ini **WAJIB tetep sinkron** sama `fetchSpendingByMember()` di job [`membertierevaluation`](../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md) (yang beneran ngubah `tier_level`) dan `TierSpending()` di sudobarber (`DOKUMENTASI API/CUSTOMER/MEMBER/TIER.md`) — kalau salah satu berubah lagi, dua lainnya wajib diupdate bareng.
+- **Sumber `spending_total` DIGABUNG** (revisi 2026-09-15) — booking barber (modul terpisah `sudobarber`, tabel `barber_booking`) yang lunas sekarang ikut kehitung, gak cuma transaksi POS/mobile lagi. Formula ini **WAJIB tetep sinkron** sama `fetchSpendingByMember()` di job [`membertierevaluation`](../../../../sudocore2/DOKUMENTASI%20BACKGROUND%20JOB/MEMBER%20TIER%20EVALUATION.md) (yang beneran ngubah `tier_level`) dan `TierSpending()` di sudobarber (`DOKUMENTASI API/CUSTOMER/MEMBER/TIER.md`) — kalau salah satu berubah lagi, dua lainnya wajib diupdate bareng.
 - `tier.name`/`tier.style_template` bisa `null` kalau admin belum pernah setup `master_member_tier_setting_detail` buat level yang lagi ditempatin member (`LEFT JOIN`, bukan `INNER JOIN` — biar response tetap muncul, cuma dua field itu yang kosong).
 - Mau daftar **SEMUA** tier (bukan cuma posisi sekarang) buat roadmap/"road to next tier"? Lihat [TIER LIST.md](TIER%20LIST.md).
 
@@ -77,4 +77,4 @@ Ini murni informasional (buat app nunjukin "evaluasi tier berikutnya: 24 Agustus
 
 **⚠️ Belum tervalidasi lewat HTTP request** — belum sempat dicoba lewat request HTTP beneran (server dev butuh restart), dan belum ada data order asli buat mastiin angka `spending_total` yang bukan nol. Update bagian ini kalau udah dites.
 
-**Revisi 2026-09-15 (nambah `barber_booking` ke spending)** — perubahan query (`UNION ALL` pos_order + barber_booking) SAMA PERSIS formula yang udah divalidasi lewat `psql` & HTTP di sudobarber (lihat [`CUSTOMER/MEMBER/TIER.md`](../../../sudobarber/DOKUMENTASI%20API/CUSTOMER/MEMBER/TIER.md#tervalidasi-live-2026-09-15-direvisi-sore-hari-yang-sama)), jadi gak diulang manual di sini. `go build`/`go vet` bersih.
+**Revisi 2026-09-15 (nambah `barber_booking` ke spending)** — perubahan query (`UNION ALL` pos_order + barber_booking) SAMA PERSIS formula yang udah divalidasi lewat `psql` & HTTP di sudobarber (lihat [`CUSTOMER/MEMBER/TIER.md`](../../../../sudobarber/DOKUMENTASI%20API/CUSTOMER/MEMBER/TIER.md#tervalidasi-live-2026-09-15-direvisi-sore-hari-yang-sama)), jadi gak diulang manual di sini. `go build`/`go vet` bersih.

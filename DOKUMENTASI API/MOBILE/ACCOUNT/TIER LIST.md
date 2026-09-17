@@ -30,7 +30,7 @@ Authorization: Bearer <token>
 | `spending_amount` | string (numeric) | Minimal total belanja buat nyampe/pertahanin level ini — dipakai app buat hitung "kurang berapa lagi" ke level berikutnya |
 | `style_template` | string, nullable | Buat tampilan (warna/badge) — struktur/isinya belum ditentukan |
 
-List kosong `[]` kalau admin belum pernah setup [MASTER MEMBER TIER SETTING.md](../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20MEMBER%20TIER%20SETTING.md) sama sekali di ERP.
+List kosong `[]` kalau admin belum pernah setup [MASTER MEMBER TIER SETTING.md](../../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20MEMBER%20TIER%20SETTING.md) sama sekali di ERP.
 
 ## Catatan
 

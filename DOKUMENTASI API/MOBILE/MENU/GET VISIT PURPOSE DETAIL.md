@@ -6,7 +6,7 @@ GET /api/branch/:branch_id/visit-purpose/:visit_purpose_id
 
 **Publik** (gak butuh `Authorization`) — pohon menu (category → subcategory → item) + harga + resolusi pajak + package/varian buat 1 visit purpose di 1 branch. **TAHAP 3 (final, 2026-08-24)** dari rencana bertahap — lihat "Status" di bawah.
 
-Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE%20DETAIL.md) di POS, TAPI querynya ditulis ulang dari nol — versi POS baca tabel lokal `mr_*` (hasil sync dari ERP), versi ini baca **langsung skema ERP** (`master_item`/`master_pricelist`/`master_tax`/dst) karena `sudomobile` connect ke DB `sudocore2` yang sama, gak ada tabel `mr_*`. Logic resolusi pajaknya sendiri **direplika persis** dari `MenuServices.php` (POS) — bukan diinterpretasi ulang dari nol, lihat "Catatan penting".
+Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE%20DETAIL.md) di POS, TAPI querynya ditulis ulang dari nol — versi POS baca tabel lokal `mr_*` (hasil sync dari ERP), versi ini baca **langsung skema ERP** (`master_item`/`master_pricelist`/`master_tax`/dst) karena `sudomobile` connect ke DB `sudocore2` yang sama, gak ada tabel `mr_*`. Logic resolusi pajaknya sendiri **direplika persis** dari `MenuServices.php` (POS) — bukan diinterpretasi ulang dari nol, lihat "Catatan penting".
 
 ## Request
 

@@ -4,7 +4,7 @@
 GET /api/branch/:branch_id/visit-purpose
 ```
 
-**Publik** (gak butuh `Authorization`) — daftar visit purpose yang dibolehin muncul di mobile customer app buat 1 branch. Mirror [`KIOSK BRANCH VISIT PURPOSE.md`](../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE.md) di POS, dengan 2 beda utama:
+**Publik** (gak butuh `Authorization`) — daftar visit purpose yang dibolehin muncul di mobile customer app buat 1 branch. Mirror [`KIOSK BRANCH VISIT PURPOSE.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE.md) di POS, dengan 2 beda utama:
 
 - Filter pakai `flag_mobile_customer` (bukan `flag_kiosk`).
 - `branch_id` **eksplisit di URL** (`:branch_id`) — beda dari Kiosk yang implisit (1 install POS = 1 branch doang). `sudomobile` ngelayanin banyak branch sekaligus (lihat [`GET BRANCH LIST.md`](GET%20BRANCH%20LIST.md)), jadi wajib nentuin branch mana yang dimaksud.
