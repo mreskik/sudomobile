@@ -6,10 +6,11 @@ nyusul di file terpisah di folder ini (1 file per endpoint, pola sama kayak
 [`../MOBILE/ORDER/KETENTUAN PROMO.md`](../MOBILE/ORDER/KETENTUAN%20PROMO.md) vs
 [`../MOBILE/ORDER/CALCULATE.md`](../MOBILE/ORDER/CALCULATE.md)).
 
-**Status (2026-09-17): SEMUA 6 endpoint SUDAH JALAN & tervalidasi live** (Create Order, Payment
-Status, Get Visit Purpose Detail, Get Payment Method List, Calculate, Order Detail — lihat file
-masing-masing). Bagian yang ditandai `[BELUM DIPUTUSIN]` masih nunggu keputusan (gak nge-block
-endpoint yang udah ada); bagian lain udah disepakati & diimplementasi.
+**Status (2026-09-18): SEMUA 8 endpoint SUDAH JALAN & tervalidasi live** (Create Order, Payment
+Status, Get Visit Purpose Detail, Get Payment Method List, Calculate, Order Detail, Get Branch
+List, Get Visit Purpose List — lihat file masing-masing). Bagian yang ditandai `[BELUM DIPUTUSIN]`
+masih nunggu keputusan (gak nge-block endpoint yang udah ada); bagian lain udah disepakati &
+diimplementasi.
 
 ## Konsep singkat
 
@@ -17,11 +18,32 @@ QR Order = fasilitas pesan lewat scan QR (di meja/outlet), customer masuk alur p
 install/login app member**. Backend-nya numpang `sudomobile` (1 DB yang sama, `db_sudocore_dev`),
 tapi jalur/route-nya terpisah dari API member di [`../MOBILE/`](../MOBILE/README.md).
 
-## Identitas request (bare minimum) — DISEPAKATI 2026-09-17
+## Identitas request (bare minimum) — DISEPAKATI 2026-09-17, TIERED 2026-09-18
 
-Setiap request QR Order **WAJIB** bawa **4** identifier ini (keputusan 2026-09-17 —
-`visit_purpose_code` ikut wajib di semua request, bukan cuma di endpoint menu/order; jadi QR-nya
-udah nentuin visit purpose sejak awal, customer gak milih lagi setelah scan):
+Ada **4** identifier — **db_code, company_code, branch_code, visit_purpose_code** — tapi
+**BUKAN SEMUANYA WAJIB DI SETIAP ENDPOINT** (revisi 2026-09-18, sebelumnya keempatnya wajib di
+semua endpoint tanpa kecuali). Sekarang **berjenjang**, dipakai buat 2 skenario QR yang beda:
+
+- **QR-nya udah nentuin semua** (di meja/outlet spesifik, encode 4 kode lengkap) — customer
+  langsung ke endpoint transaksional/detail (Create, Calculate, Payment Status, Order Detail, Get
+  Visit Purpose Detail, Get Payment Method List), **tetap wajib 4 kode penuh**, gak berubah dari
+  keputusan awal.
+- **QR-nya cuma nentuin company** (mis. QR generik di depan outlet/website, cuma encode
+  `db_code`+`company_code`) — customer PILIH sendiri branch & visit purpose lewat 2 endpoint baru
+  (2026-09-18), progresif:
+  1. `db_code` + `company_code` (2 kode) → [`GET BRANCH LIST.md`](./ORDER/01%20GET%20BRANCH%20LIST.md)
+     — daftar branch di company itu (`qrorder.ResolveCompany()`).
+  2. `db_code` + `company_code` + `branch_code` (3 kode, `branch_code` dari hasil #1) →
+     [`GET VISIT PURPOSE LIST.md`](./ORDER/02%20GET%20VISIT%20PURPOSE%20LIST.md) — daftar visit
+     purpose valid buat branch itu (`qrorder.ResolveBranch()`).
+  3. Baru abis itu customer punya 4 kode lengkap, lanjut ke endpoint transaksional/detail yang
+     sama kayak skenario pertama.
+
+Jadi `visit_purpose_code` (dan `branch_code`) **kondisional** — wajib buat endpoint yang
+"ngerjain sesuatu" (liat menu, hitung, order), belum wajib di 2 endpoint discovery yang justru
+buat NEMUIN kode itu duluan. Tabel di bawah tetap berlaku buat SEMUA level (`ResolveCompany()`
+cuma jalanin baris #1-2, `ResolveBranch()` #1-3, `Resolve()` penuh #1-4) — barrier/urutan/pesan
+error per identifier PERSIS SAMA di ketiganya, cuma titik berhentinya beda:
 
 | # | Identifier | Nunjuk ke | Cara resolve / validasi |
 |---|---|---|---|
@@ -31,13 +53,15 @@ udah nentuin visit purpose sejak awal, customer gak milih lagi setelah scan):
 | 4 | `visit_purpose_code` | `master_visit_purpose.code` | **Kolom BARU** (keputusan 2026-09-17, migration sudocore2 `207_alter_master_visit_purpose_add_code.sql`) — sebelumnya visit purpose gak punya code sama sekali. Unik global case-insensitive, auto-generate dari nama di Create sudocore2 (lihat `sudocore2/DOKUMENTASI API/MASTER/MASTER VISIT PURPOSE.md`). **WAJIB di semua request** (bukan opsional). Dicocokin case-insensitive; harus **nyambung ke branch** lewat `master_branch_visit_purpose` (`branch_id` dari #3 + `visit_purpose_id` dari code ini, `is_active = true`, **`flag_mobile_customer = true`** — keputusan 2026-09-17: reuse flag channel member app, **gak** bikin `flag_qr_order` baru; konsekuensinya visit purpose yang dinyalain buat member app otomatis kebuka juga buat QR Order, 1 saklar buat 2 channel — kalau nanti perlu dibedain, tinggal nambah flag terpisah) → dari situ dapet `menu_template_id`/tax/`order_fee`. Dipakai buat endpoint menu (versi QR Order dari `../MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`, nyusul). |
 
 Aturan turunan:
-- Keempatnya wajib ada; salah satu kosong → request ditolak (pesan error per identifier, nyusul
-  di spek endpoint).
-- Urutan resolve: `company_code` → company; `branch_code` → branch, **wajib** `company_id`-nya =
-  company itu; `visit_purpose_code` → visit purpose, **wajib** nyambung ke branch itu lewat
-  `master_branch_visit_purpose` (`flag_mobile_customer = true`, `is_active = true`). Gagal di
-  langkah mana pun → ditolak (bukan diem-diem pakai yang ketemu). `db_code` **gak** ikut
-  dicocokin (belum dipakai, lihat #1).
+- Identifier yang RELEVAN buat endpoint itu wajib ada; salah satu kosong → request ditolak (pesan
+  error per identifier, nyusul di spek endpoint). Get Branch List cuma butuh #1-2, Get Visit
+  Purpose List #1-3, sisanya (endpoint transaksional/detail) #1-4 penuh — lihat tabel skenario di
+  atas.
+- Urutan resolve: `company_code` → company; `branch_code` → branch (kalau diminta level ini),
+  **wajib** `company_id`-nya = company itu; `visit_purpose_code` → visit purpose (kalau diminta
+  level ini), **wajib** nyambung ke branch itu lewat `master_branch_visit_purpose`
+  (`flag_mobile_customer = true`, `is_active = true`). Gagal di langkah mana pun → ditolak (bukan
+  diem-diem pakai yang ketemu). `db_code` **gak** ikut dicocokin (belum dipakai, lihat #1).
 - Branch harus **aktif** (`master_branch.status = '1'`) `[BELUM DIPUTUSIN: perlu flag khusus
   "QR order aktif" per branch atau cukup status aktif?]`.
 - **Cara kirim**: **query param di SEMUA endpoint**, `GET` maupun `POST` (keputusan 2026-09-17 —
@@ -63,7 +87,7 @@ Aturan turunan:
 customer = `order_name` (**wajib** di Create, nama kolom `mb_order.order_name` — DIRENAME dari
 `customer_name` di migration `211`, disamain sama `tr_order.order_name` yang udah ada di POS) +
 `customer_phone_number` (opsional), disimpen di `mb_order` (`member_id` **NULL** — kolomnya dibikin
-nullable, lihat migration di [`CREATE ORDER.md`](./ORDER/CREATE%20ORDER.md)). Konsekuensi: order QR **gak
+nullable, lihat migration di [`CREATE ORDER.md`](./ORDER/06%20CREATE%20ORDER.md)). Konsekuensi: order QR **gak
 nyambung** ke poin/saldo/tier/promo member (semua keyed `member_id`) — diterima buat v1. Kalau
 nanti mau "nempel ke member kalau login", itu tambahan mode auth di Create, bukan mengubah yang
 ini.
@@ -83,12 +107,12 @@ Table Section sudocore2) atau QR per **outlet** (meja diisi manual/gak ada)?
 - Item yang tampil di QR Order = yang `master_pricelist_detail.qr_order = true` (flag ini udah
   ada & udah dipakai filter menu sudomobile, lihat
   [`../MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`](../MOBILE/MENU/GET%20VISIT%20PURPOSE%20DETAIL.md))
-  — reuse apa adanya (spek [`GET VISIT PURPOSE DETAIL.md`](./ORDER/GET%20VISIT%20PURPOSE%20DETAIL.md)).
+  — reuse apa adanya (spek [`GET VISIT PURPOSE DETAIL.md`](./ORDER/03%20GET%20VISIT%20PURPOSE%20DETAIL.md)).
 - Nama branch yang ditampilin: `master_branch.name_qr_order` (fallback `name` kalau kosong), plus
   `address`.
 - Harga/pajak/package: **reuse persis** resolusi member app (`sudomobile/backend/pricing`,
   `calculateOrder()`, DPP-first) — keputusan 2026-09-17, bukan implementasi baru. Payment method:
-  filter yang sama (gateway-only, scope branch+visit purpose), spek [`GET PAYMENT METHOD LIST.md`](./ORDER/GET%20PAYMENT%20METHOD%20LIST.md).
+  filter yang sama (gateway-only, scope branch+visit purpose), spek [`GET PAYMENT METHOD LIST.md`](./ORDER/04%20GET%20PAYMENT%20METHOD%20LIST.md).
 - **Promo: BELUM ADA di QR Order v1** (keputusan 2026-09-17) — `use_promo_ids` ditolak kalau
   dikirim (`promo belum didukung di QR Order`). Alasan: barrier member_type & min_point butuh
   `member_id` (tamu gak punya), dan channel `master_promo_apply_to` belum punya nilai buat QR
@@ -103,7 +127,7 @@ Table Section sudocore2) atau QR per **outlet** (meja diisi manual/gak ada)?
   **`qr`** buat QR Order). `member_id` nullable **SELESAI** (migration 208), `order_name`
   **SELESAI** (migration 210, DIRENAME dari `customer_name` di migration 211 biar sama kayak
   `tr_order.order_name` di POS). Create Order beneran udah jalan, lihat
-  [`CREATE ORDER.md`](./ORDER/CREATE%20ORDER.md). `table_number` masih `[BELUM DIPUTUSIN]` — DIBUANG
+  [`CREATE ORDER.md`](./ORDER/06%20CREATE%20ORDER.md). `table_number` masih `[BELUM DIPUTUSIN]` — DIBUANG
   dari scope Create Order v1 (bukan cuma nyusul, keputusan eksplisit gak dipaksain sampai jelas
   skemanya).
 - **Bayar online (QRIS)** lewat service `payment` — alur, `mb_order_payment_request`, sync status,
@@ -116,7 +140,7 @@ Table Section sudocore2) atau QR per **outlet** (meja diisi manual/gak ada)?
   sebelum bayar — mau ada versi QR-nya, atau cukup dibiarin expired?).
 - **Polling status bayar — SELESAI** (2026-09-17, keputusan: endpoint `payment-status` TERPISAH,
   lebih ringan dari `ORDER DETAIL.md` yang belum dibikin) — lihat
-  [`PAYMENT STATUS.md`](./ORDER/PAYMENT%20STATUS.md). "Kepemilikan"-nya `order_source='qr'` + branch
+  [`PAYMENT STATUS.md`](./ORDER/07%20PAYMENT%20STATUS.md). "Kepemilikan"-nya `order_source='qr'` + branch
   cocok (bukan token/member), REUSE `SyncPaymentStatus()` member app apa adanya.
 
 ## Barrier / validasi (lengkap)
@@ -190,17 +214,17 @@ Diisi belakangan — yang udah pasti:
   `app.Group()` yang beda) — detail di `CREATE ORDER.md`.
 - 2026-09-17 — **Payment Status (polling) SELESAI diimplementasi & tervalidasi live**, termasuk
   jalur settlement beneran (`status` `pending`→`paid`, idempotency kebukti jalan) — lihat
-  [`PAYMENT STATUS.md`](./ORDER/PAYMENT%20STATUS.md). "Polling status bayar" di atas gak lagi
+  [`PAYMENT STATUS.md`](./ORDER/07%20PAYMENT%20STATUS.md). "Polling status bayar" di atas gak lagi
   `[BELUM DIPUTUSIN]`.
 - 2026-09-17 — **Get Visit Purpose Detail SELESAI diimplementasi & tervalidasi live** — lihat
-  [`GET VISIT PURPOSE DETAIL.md`](./ORDER/GET%20VISIT%20PURPOSE%20DETAIL.md). `qrorder.Context`
+  [`GET VISIT PURPOSE DETAIL.md`](./ORDER/03%20GET%20VISIT%20PURPOSE%20DETAIL.md). `qrorder.Context`
   diperluas bawa `CompanyName`/`BranchName`/`BranchAddress`/`VisitPurposeName` sekalian (gak
   nambah round-trip), dipakai buat blok `company`/`branch`/`visit_purpose` di response endpoint
   ini.
 - 2026-09-17 — **Get Payment Method List + Calculate SELESAI diimplementasi & tervalidasi live**
   — lihat `GET PAYMENT METHOD LIST.md`/`CALCULATE.md`. 4 dari 5 endpoint QR Order sekarang jalan.
 - 2026-09-17 — **Order Detail SELESAI diimplementasi & tervalidasi live** — lihat
-  [`ORDER DETAIL.md`](./ORDER/ORDER%20DETAIL.md). `resolveOrderDetailCore()` diekstrak dari `GetDetail()`
+  [`ORDER DETAIL.md`](./ORDER/08%20ORDER%20DETAIL.md). `resolveOrderDetailCore()` diekstrak dari `GetDetail()`
   member app (item/package/payment, reuse `SyncPaymentStatus()` apa adanya); header & kepemilikan
   (`order_source='qr'` + branch cocok) tetep query & struct terpisah, pola sama kayak
   `qrOrderOwnerRow` di Payment Status. **Keenam endpoint QR Order yang direncanakan sekarang
@@ -229,3 +253,20 @@ Diisi belakangan — yang udah pasti:
   Tervalidasi live lewat `get_pending` beneran (bukan cuma syntax check) — order QR & order member
   app dua-duanya dites, hasil bener (detail di `CREATE ORDER.md`). `artisan mobile-order:pull`
   end-to-end POS tetep belum, sama kayak fix `order_source` sebelumnya.
+- 2026-09-18 — **`branch_code`/`visit_purpose_code` jadi KONDISIONAL** (sebelumnya 4 kode wajib
+  MUTLAK di semua endpoint, gak ada pengecualian). 2 endpoint baru buat alur "QR company doang"
+  (customer belum tau branch/visit purpose sama sekali): **Get Branch List** (`db_code`+
+  `company_code` doang, `qrorder.ResolveCompany()`) dan **Get Visit Purpose List** (+`branch_code`,
+  `qrorder.ResolveBranch()`). Package `qrorder` di-refactor (`Context` sekarang embed
+  `BranchContext` yang embed `CompanyContext`, Go struct embedding) — SEMUA endpoint lama
+  (Create/Calculate/PaymentStatus/OrderDetail/GetVisitPurposeDetail/GetPaymentMethodList) **GAK
+  ADA YANG BERUBAH KODENYA SAMA SEKALI**, field promotion bikin `qrCtx.BranchID` dst tetep jalan
+  apa adanya; `Resolve()` sendiri byte-for-byte sama urutan cek & pesannya kayak sebelum refactor
+  (query company/branch cuma dipindah ke helper `resolveCompanyRow()`/`resolveBranchRow()` yang
+  dipakai bareng, bukan ditulis ulang logic-nya). Filter Get Branch List:
+  `master_branch_setting.flag_online_service_mobile_customer = true AND master_branch.status = '1'`
+  (persis filter [`../MOBILE/MENU/GET BRANCH LIST.md`](../MOBILE/MENU/GET%20BRANCH%20LIST.md)
+  member app, ditambah scope 1 company). Detail lengkap + tervalidasi live di
+  [`GET BRANCH LIST.md`](./ORDER/01%20GET%20BRANCH%20LIST.md) &
+  [`GET VISIT PURPOSE LIST.md`](./ORDER/02%20GET%20VISIT%20PURPOSE%20LIST.md). **Delapan endpoint QR
+  Order sekarang SELESAI.**

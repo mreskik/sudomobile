@@ -1,9 +1,17 @@
-// Package qrorder: resolve 4 kode identitas request QR Order (db_code/company_code/branch_code/
-// visit_purpose_code) -- SATU tempat, dipakai bareng SEMUA endpoint QR Order (Create Order +
-// Payment Status yang udah jalan, endpoint lain nyusul: payment-method/calculate/order-detail/
-// visit-purpose detail) biar barrier & pesan error-nya konsisten di semua tempat. Lihat
-// DOKUMENTASI API/QR ORDER/KETENTUAN QR ORDER.md (bagian "Identitas request" + "Barrier /
-// validasi").
+// Package qrorder: resolve kode identitas request QR Order (db_code/company_code/branch_code/
+// visit_purpose_code) -- SATU tempat, dipakai bareng SEMUA endpoint QR Order biar barrier &
+// pesan error-nya konsisten di semua tempat. Lihat DOKUMENTASI API/QR ORDER/KETENTUAN QR
+// ORDER.md (bagian "Identitas request" + "Barrier / validasi").
+//
+// TIGA level resolve (2026-09-18, sebelumnya cuma 1 -- SEMUA endpoint wajib 4 kode penuh):
+//   - ResolveCompany() -- db_code+company_code DOANG. Dipakai Get Branch List (customer belum
+//     milih branch).
+//   - ResolveBranch() -- +branch_code. Dipakai Get Visit Purpose List (customer udah milih
+//     branch, belum milih visit purpose).
+//   - Resolve() -- +visit_purpose_code (KEEMPAT kode, LENGKAP). Dipakai SEMUA endpoint
+//     transaksional/detail (Create, Calculate, Payment Status, Order Detail, Get Visit Purpose
+//     Detail, Get Payment Method List) -- endpoint-endpoint ini BUTUH konteks lengkap, gak
+//     berubah dari sebelumnya.
 //
 // QR Order PUBLIK total -- gak ada Authorization, gak ada X-App-Setting (beda dari
 // middleware.AppSetting yang dipakai member app) -- makanya resolusinya BUKAN Fiber middleware
@@ -20,21 +28,32 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// Context: hasil resolve yang sukses -- ID-ID (Company/Branch/VisitPurpose) UDAH divalidasi
-// nyambung satu sama lain (branch milik company, visit purpose nyambung ke branch lewat
-// master_branch_visit_purpose). Field display (Code/Name/Address) IKUT dibawa sekalian --
-// query-nya di Resolve() udah narik baris itu, gak nambah round-trip -- biar endpoint yang
-// butuh nge-echo identitas balik (mis. GET VISIT PURPOSE DETAIL, ORDER DETAIL nanti) gak perlu
-// query ulang. BranchCode juga dipakai internal (generateOrderNumber() butuh CODE, bukan ID).
-type Context struct {
+// CompanyContext: hasil resolve db_code+company_code DOANG (ResolveCompany()).
+type CompanyContext struct {
 	CompanyID   int
 	CompanyCode string
 	CompanyName string
+}
+
+// BranchContext: hasil resolve +branch_code (ResolveBranch()) -- embed CompanyContext biar field
+// company-nya ikut kebawa (qrCtx.CompanyID dst tetep jalan langsung, Go field promotion) tanpa
+// duplikasi definisi.
+type BranchContext struct {
+	CompanyContext
 
 	BranchID      int
 	BranchCode    string
 	BranchName    string
 	BranchAddress *string
+}
+
+// Context: hasil resolve LENGKAP, +visit_purpose_code (Resolve()) -- embed BranchContext (yang
+// udah embed CompanyContext), jadi SEMUA field lama (CompanyID/BranchID/BranchCode/dst) tetep
+// bisa diakses langsung persis kayak sebelum refactor 2026-09-18 ini -- endpoint yang UDAH ADA
+// (Create/Calculate/PaymentStatus/OrderDetail/GetVisitPurposeDetail/GetPaymentMethodList) GAK
+// PERLU DIUBAH SAMA SEKALI, cuma cara Context ini DIISI di Resolve() yang berubah (lihat bawah).
+type Context struct {
+	BranchContext
 
 	VisitPurposeID   int
 	VisitPurposeCode string
@@ -62,6 +81,106 @@ type visitPurposeRow struct {
 	Name string `bun:"name"`
 }
 
+// resolveCompanyRow/resolveBranchRow: query MENTAH doang, TANPA cek "required" (pemanggil yang
+// cek, masing-masing beda kombinasi field wajib) -- dipakai bareng ResolveCompany/ResolveBranch/
+// Resolve biar SATU tempat nulis query-nya, gak triplikasi SQL.
+func resolveCompanyRow(ctx context.Context, db *bun.DB, companyCode string) (*companyRow, string, error) {
+	company := companyRow{}
+	err := db.NewRaw(`SELECT id, code, name FROM master_company WHERE upper(code) = upper(?)`, companyCode).Scan(ctx, &company)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "company tidak ditemukan", nil
+		}
+		return nil, "", err
+	}
+	return &company, "", nil
+}
+
+// COALESCE name_qr_order -> name -- tampilan khusus QR Order kalau diisi admin, fallback nama
+// biasa (sama pola kayak dokumen GET VISIT PURPOSE DETAIL.md).
+func resolveBranchRow(ctx context.Context, db *bun.DB, branchCode string, companyID int) (*branchRow, string, error) {
+	branch := branchRow{}
+	err := db.NewRaw(`
+		SELECT id, code, COALESCE(NULLIF(name_qr_order, ''), name) AS name, address, company_id, status
+		FROM master_branch WHERE upper(code) = upper(?)
+	`, branchCode).Scan(ctx, &branch)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, "branch tidak ditemukan", nil
+		}
+		return nil, "", err
+	}
+	if branch.CompanyID != companyID {
+		return nil, "branch bukan milik company ini", nil
+	}
+	if branch.Status != "1" {
+		return nil, "branch tidak aktif", nil
+	}
+	return &branch, "", nil
+}
+
+// ResolveCompany: db_code+company_code DOANG -- dipakai Get Branch List (package branch,
+// 2026-09-18). Required-check CUMA 2 field ini (branch_code/visit_purpose_code emang gak
+// diterima pemanggil ini, jadi gak ada yang perlu dicek).
+func ResolveCompany(ctx context.Context, db *bun.DB, dbCode, companyCode string) (*CompanyContext, string, error) {
+	if strings.TrimSpace(dbCode) == "" {
+		return nil, "db_code wajib diisi", nil
+	}
+	if strings.TrimSpace(companyCode) == "" {
+		return nil, "company_code wajib diisi", nil
+	}
+
+	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
+	if err != nil || errMsg != "" {
+		return nil, errMsg, err
+	}
+
+	return &CompanyContext{
+		CompanyID:   company.ID,
+		CompanyCode: company.Code,
+		CompanyName: company.Name,
+	}, "", nil
+}
+
+// ResolveBranch: +branch_code -- dipakai Get Visit Purpose List (package visitpurpose,
+// 2026-09-18). SENGAJA gak manggil ResolveCompany() (biar urutan "cek SEMUA required dulu, baru
+// mulai query" tetep konsisten dalam lingkup pemanggil ini sendiri -- gak keburu query company
+// duluan kalau ternyata branch_code-nya belum diisi; 3 baris required-check ini triplikasi kecil
+// sama Resolve() di bawah, sengaja, bukan lupa refactor).
+func ResolveBranch(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode string) (*BranchContext, string, error) {
+	if strings.TrimSpace(dbCode) == "" {
+		return nil, "db_code wajib diisi", nil
+	}
+	if strings.TrimSpace(companyCode) == "" {
+		return nil, "company_code wajib diisi", nil
+	}
+	if strings.TrimSpace(branchCode) == "" {
+		return nil, "branch_code wajib diisi", nil
+	}
+
+	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
+	if err != nil || errMsg != "" {
+		return nil, errMsg, err
+	}
+
+	branch, errMsg, err := resolveBranchRow(ctx, db, branchCode, company.ID)
+	if err != nil || errMsg != "" {
+		return nil, errMsg, err
+	}
+
+	return &BranchContext{
+		CompanyContext: CompanyContext{
+			CompanyID:   company.ID,
+			CompanyCode: company.Code,
+			CompanyName: company.Name,
+		},
+		BranchID:      branch.ID,
+		BranchCode:    branch.Code,
+		BranchName:    branch.Name,
+		BranchAddress: branch.Address,
+	}, "", nil
+}
+
 // Resolve: urutan cek PERSIS tabel barrier di KETENTUAN QR ORDER.md -- berhenti di kegagalan
 // PERTAMA, gak lanjut ngecek yang berikutnya:
 //  1. Keempat param wajib ada (db_code cuma dicek ADA, isinya belum dipakai/dicocokin ke mana
@@ -74,6 +193,10 @@ type visitPurposeRow struct {
 //     gabungan, 1 pesan error ("visit purpose tidak ditemukan") buat DUA kemungkinan (code
 //     gak ada / code ada tapi gak nyambung) -- sengaja gak dibedain, sama semantik kayak
 //     endpoint member app.
+//
+// PERSIS PERILAKU sebelum refactor 2026-09-18 (byte-for-byte urutan cek & pesan error gak
+// berubah) -- cuma query company/branch-nya sekarang lewat resolveCompanyRow()/resolveBranchRow()
+// yang dipakai bareng ResolveCompany()/ResolveBranch() di atas, bukan ditulis ulang di sini.
 //
 // Balikin (nil, "pesan error", nil) buat kegagalan validasi/lookup (BUKAN error server -- handler
 // tinggal SetMessage() apa adanya), (nil, "", err) buat error DB beneran.
@@ -91,33 +214,14 @@ func Resolve(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode, v
 		return nil, "visit_purpose_code wajib diisi", nil
 	}
 
-	company := companyRow{}
-	err := db.NewRaw(`SELECT id, code, name FROM master_company WHERE upper(code) = upper(?)`, companyCode).Scan(ctx, &company)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "company tidak ditemukan", nil
-		}
-		return nil, "", err
+	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
+	if err != nil || errMsg != "" {
+		return nil, errMsg, err
 	}
 
-	// COALESCE name_qr_order -> name -- tampilan khusus QR Order kalau diisi admin, fallback nama
-	// biasa (sama pola kayak dokumen GET VISIT PURPOSE DETAIL.md).
-	branch := branchRow{}
-	err = db.NewRaw(`
-		SELECT id, code, COALESCE(NULLIF(name_qr_order, ''), name) AS name, address, company_id, status
-		FROM master_branch WHERE upper(code) = upper(?)
-	`, branchCode).Scan(ctx, &branch)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "branch tidak ditemukan", nil
-		}
-		return nil, "", err
-	}
-	if branch.CompanyID != company.ID {
-		return nil, "branch bukan milik company ini", nil
-	}
-	if branch.Status != "1" {
-		return nil, "branch tidak aktif", nil
+	branch, errMsg, err := resolveBranchRow(ctx, db, branchCode, company.ID)
+	if err != nil || errMsg != "" {
+		return nil, errMsg, err
 	}
 
 	visitPurpose := visitPurposeRow{}
@@ -136,15 +240,17 @@ func Resolve(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode, v
 	}
 
 	return &Context{
-		CompanyID:   company.ID,
-		CompanyCode: company.Code,
-		CompanyName: company.Name,
-
-		BranchID:      branch.ID,
-		BranchCode:    branch.Code,
-		BranchName:    branch.Name,
-		BranchAddress: branch.Address,
-
+		BranchContext: BranchContext{
+			CompanyContext: CompanyContext{
+				CompanyID:   company.ID,
+				CompanyCode: company.Code,
+				CompanyName: company.Name,
+			},
+			BranchID:      branch.ID,
+			BranchCode:    branch.Code,
+			BranchName:    branch.Name,
+			BranchAddress: branch.Address,
+		},
 		VisitPurposeID:   visitPurpose.ID,
 		VisitPurposeCode: visitPurpose.Code,
 		VisitPurposeName: visitPurpose.Name,

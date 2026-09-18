@@ -22,7 +22,7 @@ pembayaran, format `order_number`/`payment_number` semuanya langsung kepakai tan
 ## Request
 
 4 kode identitas wajib di **query param** — aturan & urutan cek-nya sama persis
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#request).
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#request).
 
 Body:
 ```json
@@ -48,10 +48,10 @@ Body:
   (migration `210`, DIRENAME dari `customer_name` di migration `211` biar sama persis nama kolom
   `tr_order.order_name` di POS — lihat "Riwayat perubahan skema").
 - `customer_phone_number` — opsional, apa adanya (tanpa normalisasi, konvensi sudomobile).
-- `payment_method_id` — **wajib**, harus lolos filter [`GET PAYMENT METHOD LIST.md`](./GET%20PAYMENT%20METHOD%20LIST.md)
+- `payment_method_id` — **wajib**, harus lolos filter [`GET PAYMENT METHOD LIST.md`](./04%20GET%20PAYMENT%20METHOD%20LIST.md)
   (gateway-only, scope branch+visit purpose) — resolve pakai fungsi yang sama
   (`pricing.ResolvePaymentMethod()`).
-- `items[]` — sama persis [`CALCULATE.md`](./CALCULATE.md).
+- `items[]` — sama persis [`CALCULATE.md`](./05%20CALCULATE.md).
 - **`use_promo_ids` DITOLAK kalau diisi** (`"promo belum didukung di QR Order"`) — bukan diem-diem
   diabaikan. Promo belum ada di QR Order v1 sama sekali.
 - **Gak ada `table_number`** — sempat direncanain di draft awal, dibuang dari v1 (masih belum
@@ -114,7 +114,7 @@ Sukses (payment gateway berhasil diminta):
 tetep kebuat**, sama persis semantik member app). Ditambah di `data`: `"order_source": "qr"`,
 `"order_name"`.
 
-`order_number` ini **satu-satunya pegangan** customer buat [`ORDER DETAIL.md`](./ORDER%20DETAIL.md)
+`order_number` ini **satu-satunya pegangan** customer buat [`ORDER DETAIL.md`](./08%20ORDER%20DETAIL.md)
 (keputusan 2026-09-17: tanpa token tambahan — FE wajib simpen di device, mis. localStorage).
 
 ## Yang disimpen ke `mb_order` (beda dari member app)
@@ -135,7 +135,7 @@ sama (`insertOrderItems()`), gak ada kolom baru.
 ## Validasi
 
 Urutan cek (berhenti di kegagalan pertama):
-1. 4 kode identitas — tabel error di [`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#error).
+1. 4 kode identitas — tabel error di [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#error).
 2. `order_name` kosong → `"order_name wajib diisi"`.
 3. `items` kosong → `"items tidak boleh kosong"`.
 4. `payment_method_id` kosong → `"payment_method_id wajib diisi"`.
@@ -144,7 +144,7 @@ Urutan cek (berhenti di kegagalan pertama):
    `"cabang sedang tutup (di luar jam operasional)"`.
 7. Branch offline (POS gak kirim heartbeat, `heartbeat.IsOnline()`) →
    `"cabang sedang offline, coba lagi nanti"`.
-8. Validasi item/package (sama persis [`CALCULATE.md`](./CALCULATE.md), lewat `calculateOrder()`
+8. Validasi item/package (sama persis [`CALCULATE.md`](./05%20CALCULATE.md), lewat `calculateOrder()`
    yang sama) — `"item tidak ditemukan..."`, `"package tidak ditemukan buat item ini"`, dst.
 9. `payment_method_id` gak ketemu/gak lolos filter →
    `"payment method tidak ditemukan / tidak berlaku"`.
@@ -279,7 +279,7 @@ aktif, di luar lingkup sesi ini).
   (order `pending` yang gak dibayar bakal `expired` sendiri lewat `orderexpiry`, tapi tetep
   numpuk). Sama kelas risikonya kayak Booking Create customer di sudobarber — barier (captcha/rate
   limit) ditunda, dicatat sebagai pending.
-- **`order_number` doang buat akses detail** (keputusan 2026-09-17) — lihat [`ORDER DETAIL.md`](./ORDER%20DETAIL.md).
+- **`order_number` doang buat akses detail** (keputusan 2026-09-17) — lihat [`ORDER DETAIL.md`](./08%20ORDER%20DETAIL.md).
 
 ## Tervalidasi live (2026-09-17)
 

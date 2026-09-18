@@ -55,6 +55,7 @@ type qrVisitPurposeDetail struct {
 // pola kayak order.QRHandler.
 type QRHandler interface {
 	GetDetail(c fiber.Ctx) error
+	GetList(c fiber.Ctx) error
 }
 
 type qrHandler struct {

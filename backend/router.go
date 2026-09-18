@@ -175,12 +175,25 @@ func RegisterRoutes(app *fiber.App) {
 	// ORDER/GET VISIT PURPOSE DETAIL.md.
 	qrVisitPurposeHandler := visitpurpose.NewQRHandler(config.DB)
 	qrOrderRouter.Get("/visit-purpose/detail", qrVisitPurposeHandler.GetDetail)
+	// Daftar visit purpose 1 branch (2026-09-18) -- LEBIH DIKIT dari 4 kode (cuma db_code+
+	// company_code+branch_code, lewat qrorder.ResolveBranch()), dipakai customer NEMUIN
+	// visit_purpose_code SEBELUM lanjut ke endpoint lain manapun. Lihat DOKUMENTASI API/QR
+	// ORDER/GET VISIT PURPOSE LIST.md.
+	qrOrderRouter.Get("/visit-purpose/list", qrVisitPurposeHandler.GetList)
 
 	// Daftar payment method (gateway-only, scope branch+visit_purpose) -- REUSE
 	// resolvePaymentMethodList() yang sama dipakai member app. Lihat DOKUMENTASI API/QR ORDER/GET
 	// PAYMENT METHOD LIST.md.
 	qrPaymentMethodHandler := paymentmethod.NewQRHandler(config.DB)
 	qrOrderRouter.Get("/payment-method", qrPaymentMethodHandler.GetList)
+
+	// Daftar branch 1 company (2026-09-18) -- CUMA db_code+company_code (qrorder.ResolveCompany()),
+	// dipakai customer NEMUIN branch_code SEBELUM Get Visit Purpose List di atas -- 2 endpoint ini
+	// bareng-bareng bikin alur "scan QR company -> pilih branch -> pilih visit purpose" buat QR
+	// yang gak encode branch/visit purpose spesifik. Lihat DOKUMENTASI API/QR ORDER/GET BRANCH
+	// LIST.md.
+	qrBranchHandler := branch.NewQRHandler(config.DB)
+	qrOrderRouter.Get("/branch-list", qrBranchHandler.GetList)
 
 	// Static file serving -- root-nya config.StoragePath (default "./storage" folder sendiri,
 	// atau di-mount ke storage sudocore2 langsung lewat env STORAGE_PATH, lihat

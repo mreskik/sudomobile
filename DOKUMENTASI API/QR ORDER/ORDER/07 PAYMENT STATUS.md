@@ -17,7 +17,7 @@ Satu-satunya yang beda dari member app: cara ngecek **boleh diliat oleh siapa**.
 ## Request
 
 `:order_number` di path + 4 kode identitas di query (wajib, aturan sama
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#request)). Gak ada body.
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#request)). Gak ada body.
 
 **"Kepemilikan"** (beda dari member app yang ngecek `member_id` token) — order harus
 `order_source = 'qr'` **DAN** `branch_id`-nya cocok sama `branch_id` hasil resolve
@@ -40,7 +40,7 @@ kejadian — bukan cuma di response doang).
 
 | `message` | Kapan |
 | --- | --- |
-| 4 kode identitas gak valid | Tabel error di [`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#error) |
+| 4 kode identitas gak valid | Tabel error di [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#error) |
 | `order tidak ditemukan` | `order_number` gak ada, ATAU ada tapi `order_source != 'qr'`, ATAU `order_source='qr'` tapi `branch_id`-nya beda dari `branch_code` |
 | `gagal ambil data order` | Error DB pas lookup awal |
 | `belum pernah ada request pembayaran buat order ini` | `mb_order_payment_request` kosong buat order ini (harusnya gak pernah kejadian buat order yang lolos Create — request payment selalu dicoba di situ) |
@@ -48,7 +48,7 @@ kejadian — bukan cuma di response doang).
 
 ## Tervalidasi live (2026-09-17)
 
-Order QR asli (branch 51/`SBE`, dibuat lewat [`CREATE ORDER.md`](./CREATE%20ORDER.md)):
+Order QR asli (branch 51/`SBE`, dibuat lewat [`CREATE ORDER.md`](./06%20CREATE%20ORDER.md)):
 - Identitas bener → `status: "pending"`.
 - `company_code` yang branch-nya bukan miliknya → ketolak di tahap resolusi identitas
   (`"branch bukan milik company ini"`, sebelum sempat ngecek kepemilikan order).

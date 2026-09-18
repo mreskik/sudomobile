@@ -12,13 +12,13 @@ item + package dari snapshot `mb_order_detail`) **plus** status pembayaran yang 
 service `payment` tiap dipanggil (`syncPaymentStatus()`, fungsi yang sama) — termasuk **nampilin
 ulang QR** buat order yang masih `pending` (customer nutup browser sebelum scan → buka lagi lewat
 endpoint ini, bukan minta QR baru). **Bukan** buat polling rutin — itu udah ada endpoint sendiri
-yang lebih ringan, [`PAYMENT STATUS.md`](./PAYMENT%20STATUS.md) (**SELESAI**, keputusan 2026-09-17)
+yang lebih ringan, [`PAYMENT STATUS.md`](./07%20PAYMENT%20STATUS.md) (**SELESAI**, keputusan 2026-09-17)
 — dokumen ini murni buat struk lengkap.
 
 ## Request
 
 `:order_number` di path + 4 kode identitas di query (wajib, aturan sama
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#request)). Gak ada body.
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#request)). Gak ada body.
 
 **Kepemilikan** (keputusan 2026-09-17: **cukup `order_number`**, tanpa token/no HP) — yang dicek
 cuma: order ada, `order_source = 'qr'`, dan `branch_id`-nya = branch dari `branch_code`
@@ -46,11 +46,11 @@ dari attempt terbaru). Ditambah:
 
 **Gak ada `table_number`** — dibuang dari scope Create Order v1 (lihat `CREATE ORDER.md`), jadi
 gak ada yang bisa di-echo di sini juga. `member_id` gak ada (selalu `NULL` di order QR). `branch_name` pakai `name_qr_order` fallback
-`name` (konsisten sama [`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md)).
+`name` (konsisten sama [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md)).
 
 ## Error
 
-- 4 kode identitas gak valid → tabel di [`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#error).
+- 4 kode identitas gak valid → tabel di [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#error).
 - Order gak ada / `order_source` bukan `qr` / bukan branch ini → `"order tidak ditemukan"` (1 pesan, sama
   semantik member app).
 - Gagal sync ke service `payment` **bukan** fatal — detail tetep dibalikin, `payment.status`
@@ -69,7 +69,7 @@ package `order` yang sama kayak Create/Calculate/PaymentStatus.
 
 `order_name` (BUKAN `customer_name`) — kolomnya di-RENAME migration `211` (2026-09-17, sesudah
 endpoint ini pertama kali diimplementasi), disamain sama nama kolom yang udah ada di POS,
-`tr_order.order_name`. Lihat "Riwayat perubahan skema" di [`CREATE ORDER.md`](./CREATE%20ORDER.md#riwayat-perubahan-skema-migration-sudocore2).
+`tr_order.order_name`. Lihat "Riwayat perubahan skema" di [`CREATE ORDER.md`](./06%20CREATE%20ORDER.md#riwayat-perubahan-skema-migration-sudocore2).
 
 ## Tervalidasi live (2026-09-17)
 

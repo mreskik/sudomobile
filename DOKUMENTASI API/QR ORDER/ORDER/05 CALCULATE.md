@@ -12,7 +12,7 @@ PROTECTED karena butuh identitas member buat promo — di QR Order **belum ada p
 alasan wajib login). Preview breakdown harga/pajak isi keranjang **sebelum** order disubmit,
 baca-only, gak insert apa pun. Versi QR Order dari
 [`../MOBILE/ORDER/CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md) — body **sama persis** kayak
-[`CREATE ORDER.md`](./CREATE%20ORDER.md) minus field pembayaran/identitas, dan logic hitungnya
+[`CREATE ORDER.md`](./06%20CREATE%20ORDER.md) minus field pembayaran/identitas, dan logic hitungnya
 **fungsi yang sama** (`calculateOrder()`/`pricing.CalculateLine()`, DPP-first) — preview di
 keranjang gak pernah beda sama yang beneran kesimpen.
 
@@ -20,7 +20,7 @@ keranjang gak pernah beda sama yang beneran kesimpen.
 
 4 kode identitas wajib di **query param** (keputusan 2026-09-17: seragam buat semua endpoint QR
 Order, `POST` sekalipun — body cuma isi cart), aturan & urutan cek sama persis
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#request).
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#request).
 
 Body:
 ```json
@@ -42,7 +42,7 @@ Body:
   diabaikan).
 - `items[].menu_id`/`qty`/`notes`/`packages[]` — **sama persis** versi member app (cuma identitas +
   qty, server resolve ulang harga/pajak/package dari DB; `menu_id` & `package_id`/`menu_package_id`
-  diambil dari [`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md)).
+  diambil dari [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md)).
 - **`use_promo_ids` TIDAK diterima** (keputusan 2026-09-17: promo belum ada di QR Order v1) —
   kalau dikirim & gak kosong → ditolak `"promo belum didukung di QR Order"`, bukan diem-diem
   diabaikan (biar FE gak salah kira diskonnya kepake).
@@ -66,7 +66,7 @@ branch/visit purpose ini` (termasuk `qr_order = false`), `package tidak ditemuka
 pilihan package di luar batas min/max grup`.
 
 Ditambah: 4 kode identitas gak valid → error per langkah (tabel di
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#error)), dan `use_promo_ids`
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#error)), dan `use_promo_ids`
 terisi → `promo belum didukung di QR Order`.
 
 ## Catatan implementasi

@@ -138,7 +138,7 @@ fallback (keputusan 2026-09-17):
 ## Catatan implementasi
 
 - Route di `/qr-order` (di luar `/api`, lihat gotcha routing Fiber v3 di
-  [`CREATE ORDER.md`](./CREATE%20ORDER.md#catatan-implementasi)).
+  [`CREATE ORDER.md`](./06%20CREATE%20ORDER.md#catatan-implementasi)).
 - Resolve 4 kode lewat `qrorder.Resolve()` — 3 query bertahap (company → branch → visit purpose),
   bukan 1 `JOIN` raksasa, biar pesan error-nya bisa dibedain per langkah persis tabel di atas.
   `qrorder.Context` juga bawa `CompanyName`/`BranchName` (udah `COALESCE(name_qr_order, name)`)/

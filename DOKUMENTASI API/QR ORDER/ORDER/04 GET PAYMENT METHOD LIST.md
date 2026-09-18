@@ -18,7 +18,7 @@ sama (`pricing.ResolvePaymentMethod()`/handler list yang udah ada).
 ## Request
 
 4 kode identitas, semua wajib, query param — aturan & urutan cek-nya sama persis
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#request) (gak diulang di sini).
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#request) (gak diulang di sini).
 Gak ada body.
 
 ## Response
@@ -35,12 +35,12 @@ Gak ada body.
 
 Sama persis versi member app. Kombinasi yang gak punya payment method cocok → `data: []`, bukan
 error. `id`-nya yang dikirim balik sebagai `payment_method_id` di
-[`CREATE ORDER.md`](./CREATE%20ORDER.md).
+[`CREATE ORDER.md`](./06%20CREATE%20ORDER.md).
 
 ## Error
 
 Cuma error 4 kode identitas — tabel lengkapnya di
-[`GET VISIT PURPOSE DETAIL.md`](./GET%20VISIT%20PURPOSE%20DETAIL.md#error). Semua `code: 100`, HTTP `200`.
+[`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md#error). Semua `code: 100`, HTTP `200`.
 
 ## Catatan implementasi
 
