@@ -73,6 +73,13 @@ type branchRow struct {
 	Address   *string `bun:"address"`
 	CompanyID int     `bun:"company_id"`
 	Status    string  `bun:"status"`
+	// FlagOnlineServiceMobileCustomer: master_branch_setting.flag_online_service_mobile_customer
+	// (2026-09-18) -- flag "QR order aktif" yang tadinya dipertanyakan [BELUM DIPUTUSIN] TERNYATA
+	// UDAH ADA (dipakai Get Branch List buat filter tampilan), cuma belum dicek konsisten di
+	// endpoint lain -- ditutup sekarang. COALESCE ke false (LEFT JOIN, bukan branch.status yang
+	// INNER) -- branch yang gak punya baris master_branch_setting sama sekali dianggap BELUM
+	// diaktifin buat mobile/QR, bukan error DB.
+	FlagOnlineServiceMobileCustomer bool `bun:"flag_online_service_mobile_customer"`
 }
 
 type visitPurposeRow struct {
@@ -97,12 +104,20 @@ func resolveCompanyRow(ctx context.Context, db *bun.DB, companyCode string) (*co
 }
 
 // COALESCE name_qr_order -> name -- tampilan khusus QR Order kalau diisi admin, fallback nama
-// biasa (sama pola kayak dokumen GET VISIT PURPOSE DETAIL.md).
+// biasa (sama pola kayak dokumen GET VISIT PURPOSE DETAIL.md). LEFT JOIN master_branch_setting
+// (2026-09-18) -- flag_online_service_mobile_customer sekarang ikut jadi gate di sini juga
+// (sebelumnya cuma filter tampilan di Get Branch List), SAMA MESSAGE kayak status!='1'
+// ("branch tidak aktif") -- sengaja gak dibedain, pola sama kayak "visit purpose tidak
+// ditemukan" yang juga nutupin 2 kemungkinan sekaligus (gak perlu bocorin ke client kombinasi
+// setting mana yang gagal).
 func resolveBranchRow(ctx context.Context, db *bun.DB, branchCode string, companyID int) (*branchRow, string, error) {
 	branch := branchRow{}
 	err := db.NewRaw(`
-		SELECT id, code, COALESCE(NULLIF(name_qr_order, ''), name) AS name, address, company_id, status
-		FROM master_branch WHERE upper(code) = upper(?)
+		SELECT mb.id, mb.code, COALESCE(NULLIF(mb.name_qr_order, ''), mb.name) AS name, mb.address,
+			mb.company_id, mb.status, COALESCE(mbs.flag_online_service_mobile_customer, false) AS flag_online_service_mobile_customer
+		FROM master_branch mb
+		LEFT JOIN master_branch_setting mbs ON mbs.branch_id = mb.id
+		WHERE upper(mb.code) = upper(?)
 	`, branchCode).Scan(ctx, &branch)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -114,6 +129,9 @@ func resolveBranchRow(ctx context.Context, db *bun.DB, branchCode string, compan
 		return nil, "branch bukan milik company ini", nil
 	}
 	if branch.Status != "1" {
+		return nil, "branch tidak aktif", nil
+	}
+	if !branch.FlagOnlineServiceMobileCustomer {
 		return nil, "branch tidak aktif", nil
 	}
 	return &branch, "", nil
@@ -187,7 +205,9 @@ func ResolveBranch(ctx context.Context, db *bun.DB, dbCode, companyCode, branchC
 //     pun -- keputusan sesi 2026-09-17, lihat catatan di KETENTUAN).
 //  2. company_code -> master_company (case-insensitive).
 //  3. branch_code -> master_branch (case-insensitive), WAJIB company_id-nya cocok #2, WAJIB
-//     status aktif ('1').
+//     status aktif ('1'), WAJIB master_branch_setting.flag_online_service_mobile_customer=true
+//     (2026-09-18 -- sebelumnya cuma dicek di Get Branch List, sekarang konsisten di sini juga;
+//     1 pesan error ("branch tidak aktif") buat DUA kemungkinan, sama pola kayak #4 di bawah).
 //  4. visit_purpose_code -> master_visit_purpose (case-insensitive) YANG NYAMBUNG ke branch #3
 //     lewat master_branch_visit_purpose (flag_mobile_customer=true, is_active=true) -- 1 query
 //     gabungan, 1 pesan error ("visit purpose tidak ditemukan") buat DUA kemungkinan (code

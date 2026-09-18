@@ -73,6 +73,12 @@ sama endpoint QR Order lain (`qrOrderDetailHeader` dst). Yang DIPAKAI BARENG: he
 adanya, bukan diduplikasi). Handler-nya (`branch_qr_handler.go`) hidup di package `branch` yang
 sama kayak member app.
 
+`flag_online_service_mobile_customer` di sini SEKARANG **konsisten** dipakai lagi sebagai gate di
+`qrorder.resolveBranchRow()` (2026-09-18) — dipanggil semua endpoint yang nunjuk 1 branch spesifik
+lewat `branch_code` (02-08). Branch yang gak nongol di list ini juga bakal ditolak
+(`"branch tidak aktif"`) kalau `branch_code`-nya dicoba dipakai langsung di endpoint lain — bukan
+lagi cuma filter tampilan doang. Detail di riwayat [`KETENTUAN QR ORDER.md`](../KETENTUAN%20QR%20ORDER.md).
+
 `qrorder.ResolveCompany()` — resolver BARU (2026-09-18), sibling `ResolveBranch()`/`Resolve()`
 yang udah ada, sama-sama di package `qrorder`. Lihat "Riwayat" di
 [`KETENTUAN QR ORDER.md`](../KETENTUAN%20QR%20ORDER.md) buat detail refactor-nya (Go struct

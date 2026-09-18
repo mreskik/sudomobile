@@ -132,7 +132,7 @@ fallback (keputusan 2026-09-17):
 | `company tidak ditemukan` | `company_code` gak ada di `master_company` |
 | `branch tidak ditemukan` | `branch_code` gak ada di `master_branch` |
 | `branch bukan milik company ini` | Branch ketemu, tapi `master_branch.company_id` ≠ company dari `company_code` |
-| `branch tidak aktif` | `master_branch.status != '1'` |
+| `branch tidak aktif` | `master_branch.status != '1'` **ATAU** `master_branch_setting.flag_online_service_mobile_customer != true` (2026-09-18 — sama pesan buat dua kemungkinan, sengaja gak dibedain) |
 | `visit purpose tidak ditemukan` | `visit_purpose_code` gak ada di `master_visit_purpose`, ATAU ada tapi gak nyambung ke branch ini (`master_branch_visit_purpose` gak ada / `flag_mobile_customer = false` / `is_active = false`) — sengaja 1 pesan, sama semantik kayak member app |
 
 ## Catatan implementasi
