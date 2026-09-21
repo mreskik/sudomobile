@@ -168,12 +168,16 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 // "business validation" kayak resolveVisitPurposeDetail()/resolvePaymentMethodList(), makanya
 // gak butuh return errMsg terpisah.
 func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status string) ([]orderDetailItem, orderDetailPayment, error) {
+	// mod.menu_id/modp.menu_id = item_conversion_detail_id (2026-09-21, dibenerin) -- resolve
+	// mi.item_name HARUS lewat master_item_conversion_detail dulu, BUKAN JOIN langsung
+	// mi.id = mod.menu_id (order lama sebelum fix ini disengaja dibiarkan salah, gak dimigrasi).
 	items := []orderDetailItem{}
 	if err := db.NewRaw(`
 		SELECT mod.ulid, mod.menu_id, mi.item_name, mod.qty, mod.notes, mod.price, mod.tax_type, mod.tax_rate,
 			mod.dpp, mod.net_dpp, mod.tax_amount, mod.total, mod.promo_id, mod.discount_percent, mod.discount_amount
 		FROM mb_order_detail mod
-		LEFT JOIN master_item mi ON mi.id = mod.menu_id
+		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
+		LEFT JOIN master_item mi ON mi.id = micd.item_id
 		WHERE mod.order_number = ?
 		ORDER BY mod.created_at ASC
 	`, orderNumber).Scan(ctx, &items); err != nil {
@@ -191,7 +195,8 @@ func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status
 			SELECT modp.mb_order_detail_ulid, modp.menu_package_id, modp.menu_id, mi.item_name,
 				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.dpp, modp.net_dpp, modp.tax_amount, modp.total
 			FROM mb_order_detail_package modp
-			LEFT JOIN master_item mi ON mi.id = modp.menu_id
+			LEFT JOIN master_item_conversion_detail micd ON micd.id = modp.menu_id
+			LEFT JOIN master_item mi ON mi.id = micd.item_id
 			WHERE modp.mb_order_detail_ulid IN (?)
 			ORDER BY modp.mb_order_detail_ulid ASC
 		`, bun.In(ulids)).Scan(ctx, &packages); err != nil {

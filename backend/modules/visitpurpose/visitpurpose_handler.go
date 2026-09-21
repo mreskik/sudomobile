@@ -75,7 +75,19 @@ type menuItemRow struct {
 	SubcategoryName *string `bun:"subcategory_name"`
 	IconSrc         *string `bun:"subcategory_icon_src"`
 	BannerSrc       *string `bun:"subcategory_banner_src"`
+	// ItemID (2026-09-21, dibenerin): ini item_conversion_detail_id (mpd.item_conversion_detail_id),
+	// BUKAN master_item.id -- identitas item yang dipertukarkan ke client/order HARUS item_conv id,
+	// konsisten sama kontrak POS (tr_order_detail.menu_id = mr_item_conv.id, lihat komentar
+	// OrderServices.php POS). Sebelumnya kolom ini keisi master_item.id, bikin app ngirim balik
+	// master_item.id sebagai menu_id pas order -- ke-save ke mb_order_detail.menu_id yang
+	// harusnya item_conv id, nyasar ke item_conv lain yang KEBETULAN id-nya sama (bug ketemu dari
+	// laporan: order "MANGGO" ke-print di POS sebagai item lain gara-gara id ketuker).
+	// MasterItemID -- item_id ASLI (master_item.id), dipisah KHUSUS buat internal lookup ke
+	// FetchPackages() (map key-nya emang master_item.id, KARENA master_item_package.item_id FK
+	// ke situ, bukan ke item_conv -- level package memang per-item, bukan per-conversion-unit).
+	// TIDAK di-JSON-kan, murni dipakai di Go.
 	ItemID          int64   `bun:"item_id"`
+	MasterItemID    int64   `bun:"master_item_id"`
 	ItemCode        string  `bun:"item_code"`
 	ItemName        string  `bun:"item_name"`
 	ItemDescription *string `bun:"item_description"`
@@ -208,7 +220,8 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 			mic.id AS category_id, mic.name AS category_name,
 			misc.id AS subcategory_id, misc.name AS subcategory_name,
 			misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
-			mi.id AS item_id, mi.item_code, mi.item_name, mi.item_description,
+			mpd.item_conversion_detail_id AS item_id, mi.id AS master_item_id,
+			mi.item_code, mi.item_name, mi.item_description,
 			mi.image AS image_src, mi.icon_src AS item_icon_src,
 			mpd.price, mi.use_tax
 		FROM master_pricelist_detail mpd
@@ -244,15 +257,16 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 	}, "", nil
 }
 
-// itemIDsOf: daftar item_id UNIK dari hasil query menu (buat batch-query package sekali,
-// bukan per-item).
+// itemIDsOf: daftar master_item.id UNIK dari hasil query menu (buat batch-query package
+// sekali, bukan per-item) -- FetchPackages() butuh master_item.id (row.MasterItemID), BUKAN
+// item_conv id (row.ItemID), karena master_item_package.item_id FK ke master_item.
 func itemIDsOf(rows []menuItemRow) []int64 {
 	ids := make([]int64, 0, len(rows))
 	seen := map[int64]bool{}
 	for _, row := range rows {
-		if !seen[row.ItemID] {
-			seen[row.ItemID] = true
-			ids = append(ids, row.ItemID)
+		if !seen[row.MasterItemID] {
+			seen[row.MasterItemID] = true
+			ids = append(ids, row.MasterItemID)
 		}
 	}
 	return ids
@@ -266,7 +280,9 @@ func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pr
 
 	for _, row := range rows {
 		taxID, taxRate := pricing.ResolveItemTax(row.UseTax, cfg, rates)
-		packageList, ok := packages[row.ItemID]
+		// packages map key-nya master_item.id (row.MasterItemID), BUKAN row.ItemID (item_conv id)
+		// -- lihat komentar itemIDsOf().
+		packageList, ok := packages[row.MasterItemID]
 		if !ok {
 			packageList = []pricing.PackageGroup{}
 		}

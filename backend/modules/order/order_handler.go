@@ -74,8 +74,16 @@ type calculateRequest struct {
 // item_id yang diminta doang (beda dari visitpurpose_handler.GetDetail yang narik SEMUA item di
 // menu_template) -- lebih murah karena payload order biasanya cuma beberapa item, bukan seluruh
 // menu.
+//
+// ItemID (2026-09-21, dibenerin) = item_conversion_detail_id, dipakai sebagai map key & DITULIS
+// APA ADANYA ke mb_order_detail.menu_id -- harus item_conv id, konsisten sama kontrak POS
+// (tr_order_detail.menu_id = mr_item_conv.id). MasterItemID = master_item.id ASLI, dipakai
+// KHUSUS buat lookup packages[...] (FetchPackages key-nya master_item.id) dan
+// PromoTargetMatches promo_for="item" (master_promo_items.item_id sengaja ITEM ID, bukan conv
+// id -- lihat komentar TypeFreeitemItemID di promo_model.go sudocore2). JANGAN ketuker dua-duanya.
 type menuRow struct {
 	ItemID            int64  `bun:"item_id"`
+	MasterItemID      int64  `bun:"master_item_id"`
 	ItemName          string `bun:"item_name"`
 	CategoryID        *int64 `bun:"category_id"`
 	SubcategoryID     *int64 `bun:"subcategory_id"`
@@ -182,6 +190,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		return nil, "visit purpose tidak ditemukan", nil
 	}
 
+	// menuIDs = item_conv id (item.MenuID, dari request client) -- dipakai resolveMenuRows().
 	menuIDs := make([]int64, 0, len(body.Items))
 	for _, item := range body.Items {
 		menuIDs = append(menuIDs, item.MenuID)
@@ -197,7 +206,21 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		return nil, "", err
 	}
 
-	packages, err := pricing.FetchPackages(ctx, db, menuIDs, cfg, taxRates)
+	// masterItemIDs (2026-09-21, dibenerin) = master_item.id ASLI, diambil dari hasil resolve
+	// menuRows (row.MasterItemID) -- BUKAN menuIDs (item_conv id) langsung. FetchPackages()
+	// butuh master_item.id karena master_item_package.item_id FK ke situ. Item yang gak
+	// ketemu di menuRows (gak valid) dilewat -- biar konsisten sama validasi "item tidak
+	// ditemukan" yang udah ada di PASS 1 di bawah, bukan gagal duluan di sini.
+	masterItemIDs := make([]int64, 0, len(menuRows))
+	seenMasterID := map[int64]bool{}
+	for _, row := range menuRows {
+		if !seenMasterID[row.MasterItemID] {
+			seenMasterID[row.MasterItemID] = true
+			masterItemIDs = append(masterItemIDs, row.MasterItemID)
+		}
+	}
+
+	packages, err := pricing.FetchPackages(ctx, db, masterItemIDs, cfg, taxRates)
 	if err != nil {
 		return nil, "", err
 	}
@@ -280,7 +303,9 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 
 		matchedAny := false
 		for idx, p := range pending {
-			matches, dErr := pricing.PromoTargetMatches(ctx, db, promo.ID, promo.PromoFor, p.req.MenuID, p.row.CategoryID, p.row.SubcategoryID)
+			// promo_for="item" match ke master_promo_items.item_id -- sengaja master_item.id
+			// (p.row.MasterItemID), BUKAN p.req.MenuID (item_conv id) -- lihat komentar menuRow.
+			matches, dErr := pricing.PromoTargetMatches(ctx, db, promo.ID, promo.PromoFor, p.row.MasterItemID, p.row.CategoryID, p.row.SubcategoryID)
 			if dErr != nil {
 				return nil, "", dErr
 			}
@@ -359,8 +384,10 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		totalBilling += qtyF * mustFloat(calc.Total)
 		totalDiscount += discountAmount
 
+		// packages map key-nya master_item.id (row.MasterItemID), BUKAN itemReq.MenuID
+		// (item_conv id) -- lihat komentar masterItemIDs di atas.
 		availableGroups := map[int64]pricing.PackageGroup{}
-		for _, g := range packages[itemReq.MenuID] {
+		for _, g := range packages[row.MasterItemID] {
 			availableGroups[g.PackageID] = g
 		}
 
@@ -467,13 +494,14 @@ func resolveMenuRows(ctx context.Context, db *bun.DB, menuTemplateID int64, item
 	rows := []menuRow{}
 	err := db.NewRaw(`
 		SELECT
-			mi.id AS item_id, mi.item_name, mi.item_category AS category_id, mi.item_subcategory AS subcategory_id,
+			mpd.item_conversion_detail_id AS item_id, mi.id AS master_item_id,
+			mi.item_name, mi.item_category AS category_id, mi.item_subcategory AS subcategory_id,
 			mpd.id AS pricelist_detail_id, mpd.price, mi.use_tax
 		FROM master_pricelist_detail mpd
 		JOIN master_item_conversion_detail micd ON micd.id = mpd.item_conversion_detail_id
 		JOIN master_item mi ON mi.id = micd.item_id
 		WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
-			AND mi.item_status = '1' AND mi.id IN (?)
+			AND mi.item_status = '1' AND mpd.item_conversion_detail_id IN (?)
 	`, menuTemplateID, bun.In(itemIDs)).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err

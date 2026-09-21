@@ -183,6 +183,11 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 		return result, nil
 	}
 
+	// sub_item_id (2026-09-21, dibenerin): mipd.item_conversion_detail_id, BUKAN submi.id
+	// (master_item.id) -- sama alasan kayak visitpurpose_handler.go ItemID, identitas item yang
+	// dipertukarkan ke client/order harus item_conv id. mip.item_id (parent_item_id, filter
+	// input) TETAP master_item.id -- master_item_package.item_id FK ke situ, level package
+	// memang per-item bukan per-conversion, JANGAN diubah.
 	rows := []packageRow{}
 	err := db.NewRaw(`
 		SELECT
@@ -193,7 +198,7 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 				ELSE COALESCE(mt.price, mipd.price)
 			END AS price,
 			mipd.default_item,
-			submi.id AS sub_item_id, submi.item_name AS sub_item_name, submi.item_description AS sub_item_description,
+			mipd.item_conversion_detail_id AS sub_item_id, submi.item_name AS sub_item_name, submi.item_description AS sub_item_description,
 			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
 		FROM master_item_package mip
 		JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id

@@ -62,13 +62,19 @@ func (h *handler) GetGlobal(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 	limit := parseLimit(c)
 
+	// menu_id (mb_order_detail) itu item_conversion_detail_id (2026-09-21, dibenerin) --
+	// resolve nama/gambar item HARUS lewat master_item_conversion_detail dulu, BUKAN JOIN
+	// langsung mi.id = mod.menu_id (yang cuma benar buat data lama sebelum fix ini, order
+	// baru bakal salah resolve kalau tetap JOIN langsung). Order lama (sebelum fix) memang
+	// bakal salah/gak ketemu di sini -- disengaja, gak dimigrasi (lihat catatan project).
 	list := []bestSellerItemBase{}
 	err := h.db.NewRaw(`
 		SELECT mod.menu_id, mi.item_name, mi.image AS image_src, mi.icon_src,
 			SUM(mod.qty) AS total_qty, COUNT(DISTINCT mod.order_number) AS total_orders
 		FROM mb_order_detail mod
 		JOIN mb_order mo ON mo.order_number = mod.order_number
-		LEFT JOIN master_item mi ON mi.id = mod.menu_id
+		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
+		LEFT JOIN master_item mi ON mi.id = micd.item_id
 		WHERE mo.status = 'paid' AND mo.created_at >= now() - interval '30 days'
 		GROUP BY mod.menu_id, mi.item_name, mi.image, mi.icon_src
 		ORDER BY total_qty DESC
@@ -91,13 +97,15 @@ func (h *handler) GetByBranch(c fiber.Ctx) error {
 	}
 	limit := parseLimit(c)
 
+	// menu_id resolve via item_conversion_detail -- lihat catatan di GetGlobal().
 	list := []bestSellerItemBase{}
 	err = h.db.NewRaw(`
 		SELECT mod.menu_id, mi.item_name, mi.image AS image_src, mi.icon_src,
 			SUM(mod.qty) AS total_qty, COUNT(DISTINCT mod.order_number) AS total_orders
 		FROM mb_order_detail mod
 		JOIN mb_order mo ON mo.order_number = mod.order_number
-		LEFT JOIN master_item mi ON mi.id = mod.menu_id
+		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
+		LEFT JOIN master_item mi ON mi.id = micd.item_id
 		WHERE mo.status = 'paid' AND mo.created_at >= now() - interval '30 days' AND mo.branch_id = ?
 		GROUP BY mod.menu_id, mi.item_name, mi.image, mi.icon_src
 		ORDER BY total_qty DESC
@@ -153,6 +161,10 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data pajak"))
 	}
 
+	// menu_id (mb_order_detail) = item_conversion_detail_id (2026-09-21, dibenerin) --
+	// resolve mi.item_name/image/use_tax lewat micd DULU (mod.menu_id -> micd.id -> mi.id),
+	// BUKAN mi.id = mod.menu_id langsung. mpd (buat harga di menu_template ini) juga tinggal
+	// join langsung ke micd.id = mod.menu_id, gak perlu muter lewat mi.id lagi kayak sebelumnya.
 	rows := []bestSellerItemWithPrice{}
 	err = h.db.NewRaw(`
 		SELECT mod.menu_id, mi.item_name, mi.image AS image_src, mi.icon_src, mi.use_tax AS tax_type,
@@ -160,9 +172,9 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 			mpd.price
 		FROM mb_order_detail mod
 		JOIN mb_order mo ON mo.order_number = mod.order_number
-		LEFT JOIN master_item mi ON mi.id = mod.menu_id
-		LEFT JOIN master_item_conversion_detail micd ON micd.item_id = mi.id
-		LEFT JOIN master_pricelist_detail mpd ON mpd.item_conversion_detail_id = micd.id
+		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
+		LEFT JOIN master_item mi ON mi.id = micd.item_id
+		LEFT JOIN master_pricelist_detail mpd ON mpd.item_conversion_detail_id = mod.menu_id
 			AND mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
 		WHERE mo.status = 'paid' AND mo.created_at >= now() - interval '30 days'
 			AND mo.branch_id = ? AND mo.visit_purpose_id = ?
