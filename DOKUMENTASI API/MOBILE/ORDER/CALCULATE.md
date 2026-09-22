@@ -4,9 +4,9 @@
 POST /api/order/calculate
 ```
 
-**PROTECTED** (wajib `Authorization: Bearer <token>`, digeser dari publik 2026-08-24) — preview breakdown harga/pajak buat isi keranjang, **SEBELUM** order beneran disubmit. Baca-only, gak insert apa pun ke `mb_order*`. Body **SAMA PERSIS** kayak yang dipakai [`POST /api/order/create-order`](CREATE%20ORDER.md) — sengaja dibikin identik biar frontend bisa reuse payload yang sama antara "hitung dulu di keranjang" dan "submit order beneran".
+**PUBLIK** (2026-09-22, sebelumnya PROTECTED — `Authorization: Bearer <token>` sekarang OPSIONAL, `X-App-Setting` TETAP wajib) — preview breakdown harga/pajak buat isi keranjang, **SEBELUM** order beneran disubmit. Baca-only, gak insert apa pun ke `mb_order*`. Body **SAMA PERSIS** kayak yang dipakai [`POST /api/order/create-order`](CREATE%20ORDER.md) — sengaja dibikin identik biar frontend bisa reuse payload yang sama antara "hitung dulu di keranjang" dan "submit order beneran".
 
-Wajib login karena validasi promo butuh identitas member (`member_type_id` buat filter `master_promo_type_members`, saldo poin buat `min_point_amount`) — `member_id` diambil dari session token, BUKAN dari body.
+`use_promo_ids` **TETAP wajib login** — ditolak total kalau gak ada token (validasi promo butuh identitas member: `member_type_id` buat filter `master_promo_type_members`, saldo poin buat `min_point_amount`). `member_id` diambil dari session token kalau ada (opsional), BUKAN dari body.
 
 ## Request
 
@@ -98,6 +98,7 @@ Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`CalculateLine()`)
 - `menu_package_id` gak ada di grup itu → `"pilihan package tidak ditemukan di grup ini"`.
 - `qty` selection ≤ 0 → `"qty pilihan package wajib lebih dari 0"`.
 - Total qty selection dalam 1 grup di luar `min_qty`/`max_qty` grup itu → `"jumlah pilihan package di luar batas min/max grup"`.
+- **(2026-09-22)** `use_promo_ids` diisi TAPI gak login (gak ada token/token invalid) → `"promo tidak bisa dipakai tanpa login"`.
 - Salah satu `use_promo_ids` gak ketemu / gak lolos eligibility (channel `mobile_customer`, branch, visit_purpose, member_type, hari, jam, periode, `is_active`) → `"promo {id} tidak ditemukan / tidak berlaku"`.
 - Salah satu `use_promo_ids` gak cocok (`promo_for`) ke item MANA PUN di `items[]` → `"promo {id} tidak berlaku buat item apa pun di cart"`.
 - Subtotal belanja (SEBELUM diskon apa pun) belum capai `min_buy_amount` promo → `"belanja belum mencapai minimum buat promo {id}"`.

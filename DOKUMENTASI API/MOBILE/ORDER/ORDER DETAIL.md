@@ -4,7 +4,7 @@
 GET /api/order/:order_number
 ```
 
-**PROTECTED** (wajib `Authorization: Bearer <token>`) — detail LENGKAP 1 order: breakdown item (+package), plus status pembayaran yang SELALU FRESH (bukan data statis).
+**PUBLIK** (2026-09-22, sebelumnya PROTECTED — `Authorization` sekarang gak wajib, `X-App-Setting` TETAP wajib) — detail LENGKAP 1 order: breakdown item (+package), plus status pembayaran yang SELALU FRESH (bukan data statis). Gak ada lagi cek kepemilikan (dulu wajib `member_id` login cocok sama order) — **`order_number` itu sendiri jadi kunci akses**: siapa pun yang tau/pegang nomornya berhak liat detailnya, sama kayak `payment-status` dan `cancel`.
 
 ## Kebutuhan (dikonfirmasi 2026-08-25)
 
@@ -86,7 +86,7 @@ GET /api/order/:order_number
 - `payment.payment_method_id`/`payment_method_name` — dari attempt TERBARU `mb_order_payment_request` (sama pola kayak [`ORDER HISTORY.md`](ORDER%20HISTORY.md)).
 - Gagal sinkronisasi status (network ke service `payment` error, atau belum pernah ada attempt payment sama sekali) **BUKAN dianggap fatal** — detail order tetap dibalikin, `payment.status` fallback ke `mb_order.status` apa adanya, tanpa QR. Beda dari [`PAYMENT STATUS.md`](PAYMENT%20STATUS.md) yang emang tujuan utamanya ngecek status makanya error di situ dianggap gagal.
 
-Order gak ketemu / bukan punya member yang login (pesan disamain) → `{ "code": 100, "message": "order tidak ditemukan" }`.
+Order gak ketemu (`order_number` salah/gak ada) → `{ "code": 100, "message": "order tidak ditemukan" }`.
 
 ## Sumber data / implementasi
 
@@ -99,7 +99,7 @@ End-to-end pakai service `payment` beneran (port 98):
 
 - Order dibuat (item + package) → `GET /order/:order_number` balikin breakdown item+package yang cocok sama yang kesimpen, DAN `payment.vendor_qr_string` **PERSIS SAMA** kayak yang dibalikin `create-order` sebelumnya (dicek string-nya identik) — konfirmasi ini QR yang DITAMPILKAN ULANG, bukan diminta baru.
 - `payment_gateway.status` di-set `settlement` manual (Postgres) → `GET /order/:order_number` dipanggil lagi → `payment.status` jadi `paid`, QR fields jadi `null`. Dicek langsung ke Postgres: `mb_order.status` BENERAN ikut ke-`paid`, `mb_order_payment` ke-insert (side-effect sinkronisasi jalan, sama kayak `payment-status`).
-- Member lain / `order_number` gak ada → `"order tidak ditemukan"` (sama, gak bocorin kepemilikan).
+- `order_number` gak ada → `"order tidak ditemukan"`.
 
 Semua data test dibersihkan total setelah verifikasi.
 

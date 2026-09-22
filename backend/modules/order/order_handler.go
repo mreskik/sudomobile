@@ -226,8 +226,13 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	}
 
 	// hasPromo: cuma fetch data member (member_type_id + saldo poin) kalau BENERAN ada promo yang
-	// diminta -- member_id selalu ada (endpoint ini protected), tapi query tambahan itu gak
-	// gratis, sayang dijalanin kalau gak ada promo yang diminta sama sekali.
+	// diminta. PUBLIK (2026-09-22) -- endpoint ini gak lagi wajib Authorization, jadi memberID
+	// bisa 0 (gak login). Promo TETAP wajib login (sama kayak QR Order) -- guard di sini,
+	// SEBELUM fetchMemberPromoContext() dipanggil dengan memberID 0 (yang bakal nyasar/gagal).
+	if len(body.UsePromoIDs) > 0 && memberID == 0 {
+		return nil, "promo tidak bisa dipakai tanpa login", nil
+	}
+
 	var memberTypeID int64
 	var memberPoint float64
 	if len(body.UsePromoIDs) > 0 {

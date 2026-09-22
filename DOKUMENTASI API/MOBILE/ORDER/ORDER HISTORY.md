@@ -6,6 +6,8 @@ GET /api/order/history
 
 **PROTECTED** (wajib `Authorization: Bearer <token>`) — list **header** order milik member yang lagi login. Mirror `KIOSK ORDER HISTORY.md` POS, tapi di-scope ke `member_id` (BUKAN `terminal_id` — Kiosk itu 1 device dipakai gantian banyak kasir/customer, `sudomobile` 1 akun = 1 customer, jadi scope-nya otomatis "punya siapa" bukan "dari device mana").
 
+**(2026-09-22)** Satu-satunya endpoint `/order` yang MASIH wajib login — Calculate/Create/Order Detail/Cancel/Payment Status sudah digeser jadi publik (lihat [`CREATE ORDER.md`](CREATE%20ORDER.md)), tapi History datanya sendiri BERBASIS `member_id` (list "order-order saya"), jadi gak masuk akal buat orang yang gak login.
+
 **Belum termasuk list item per-order** — baru header, sama kayak preseden `KIOSK ORDER HISTORY.md`. Detail per-order (isi item) belum dibangun.
 
 ## Request

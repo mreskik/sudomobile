@@ -4,7 +4,9 @@
 POST /api/order/create-order
 ```
 
-**PROTECTED** (wajib `Authorization: Bearer <token>`) — bikin order beneran (insert `mb_order*`) DAN sekaligus minta QR pembayaran ke service `payment`. 1 call dari sisi client, internal-nya 2 langkah backend (konfirmasi 2026-08-24) — lihat bagian "Alur" di bawah.
+**PUBLIK** (2026-09-22, sebelumnya PROTECTED — `Authorization: Bearer <token>` sekarang OPSIONAL, `X-App-Setting` TETAP wajib) — bikin order beneran (insert `mb_order*`) DAN sekaligus minta QR pembayaran ke service `payment`. 1 call dari sisi client, internal-nya 2 langkah backend (konfirmasi 2026-08-24) — lihat bagian "Alur" di bawah.
+
+Kalau login (ada token valid), order tersimpan dengan `member_id` terisi (muncul di [`ORDER HISTORY.md`](ORDER%20HISTORY.md), dapat point/benefit member kalau ada). Kalau gak login, `mb_order.member_id` disimpan `NULL` (order tamu, sama seperti [QR Order](../../QR%20ORDER/KETENTUAN%20QR%20ORDER.md)) — **`order_number` itu sendiri jadi satu-satunya kunci akses** ke order ini (detail/cancel/payment-status gak lagi wajib login, siapa pun yang tau/pegang nomornya berhak akses, lihat [`ORDER DETAIL.md`](ORDER%20DETAIL.md)). Promo (`use_promo_ids`) **TETAP wajib login** — ditolak total kalau gak ada token (sama seperti QR Order), lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md).
 
 Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_method_id`/`customer_phone_number` — logic resolve harga/pajak/promo dipakai ULANG persis (fungsi `calculateOrder()` yang sama), jadi breakdown yang tampil pas preview keranjang GAK PERNAH beda sama yang beneran kesimpen/ke-charge.
 
@@ -93,6 +95,7 @@ Retry payment request buat order yang statusnya `payment.status: failed` **belum
 
 Semua validasi [`CALCULATE.md`](CALCULATE.md) berlaku (item/package/promo/dll) — DITAMBAH:
 
+- **(2026-09-22)** `use_promo_ids` diisi TAPI gak login (gak ada token/token invalid) → `"promo tidak bisa dipakai tanpa login"`.
 - `payment_method_id` kosong → `"payment_method_id wajib diisi"`.
 - `payment_method_id` gak ketemu / gak lolos filter (gateway-only, scope branch+visit_purpose) → `"payment method tidak ditemukan / tidak berlaku"`.
 - **(2026-08-27)** Branch lagi tutup (di luar jam operasional hari ini, `master_branch_ops_setting`) → `"cabang sedang tutup (di luar jam operasional)"`. Dicek pakai `branch.IsOpenNow()` (`modules/branch/branch_handler.go`, di-export biar dipakai lintas modul) — logic-nya SAMA PERSIS yang dipakai buat `flag_status_store_open` di [`GET BRANCH LIST.md`](../MENU/GET%20BRANCH%20LIST.md), cuma sekarang JUGA jadi gerbang keras di sini (sebelumnya cuma info tampilan doang).

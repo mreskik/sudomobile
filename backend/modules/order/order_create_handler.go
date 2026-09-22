@@ -147,7 +147,16 @@ func (h *handler) Create(c fiber.Ctx) error {
 
 // insertOrder: 1 transaksi -- mb_order + mb_order_detail + mb_order_detail_package. Kalau ada
 // yang gagal di tengah, semua di-rollback (order gak boleh nyangkut separuh jadi).
+//
+// memberID 0 (2026-09-22, PUBLIK -- gak login) DISIMPEN SEBAGAI NULL, BUKAN literal 0 -- 0 bukan
+// id member yang valid, dan mb_order.member_id emang udah NULLABLE dari migration 208 (awalnya
+// buat QR Order/tamu, sekarang juga kepake buat member app yang gak login). Konversi ke pointer
+// di sini, boundary antara "gak ada member" (app-level) vs constraint DB.
 func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID int64, companyID *int, body createOrderRequest, result *calculateResult) error {
+	var memberIDParam *int64
+	if memberID != 0 {
+		memberIDParam = &memberID
+	}
 	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		_, err := tx.NewRaw(`
 			INSERT INTO mb_order (
@@ -156,7 +165,7 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 				sub_total, total_discount, total_tax, total_billing,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source
 			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'mobile')
-		`, orderNumber, body.BranchID, memberID, body.VisitPurposeID,
+		`, orderNumber, body.BranchID, memberIDParam, body.VisitPurposeID,
 			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID,
 		).Exec(ctx)

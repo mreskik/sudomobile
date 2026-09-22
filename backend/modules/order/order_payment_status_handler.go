@@ -7,7 +7,6 @@ import (
 	"fmt"
 
 	"sudomobile/backend/helpers"
-	"sudomobile/backend/middleware"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/uptrace/bun"
@@ -18,33 +17,24 @@ type paymentStatusResult struct {
 	Status      string `json:"status"`
 }
 
-// orderOwnerRow: hasil lookup mb_order buat cek kepemilikan -- BEDA dari Kiosk (POS internal
-// staff, gak ada konsep "punya siapa") -- sudomobile customer-facing, jadi WAJIB mastiin
-// member yang lagi login itu emang pemilik order ini sebelum ngasih tau status pembayarannya.
-// MemberID *int64 (2026-09-17, migration sudocore2 208) -- mb_order.member_id sekarang NULLABLE
-// (order QR Order = tamu, gak ada member). order_number sembarangan gak difilter member_id di
-// SQL (dicek manual di Go SETELAH fetch, lihat pemanggil), jadi order QR juga bisa "kena
-// scan" di sini kalau member iseng nebak order_number-nya -- WAJIB pointer biar gak Scan error,
-// perbandingan kepemilikan di bawah otomatis anggap NULL != member manapun (isMemberOwner()).
+// orderOwnerRow: hasil lookup mb_order (member_id + status). MemberID *int64 (2026-09-17,
+// migration sudocore2 208) -- mb_order.member_id sekarang NULLABLE (order tamu, QR Order maupun
+// member app yang gak login), pointer WAJIB biar gak Scan error.
+//
+// PUBLIK (2026-09-22) -- endpoint ini gak lagi cek kepemilikan (dulu lewat isMemberOwner(), sudah
+// dihapus). order_number sendiri jadi kunci akses: siapa pun yang tau/pegang nomornya berhak cek
+// status pembayarannya -- lihat catatan di router.go.
 type orderOwnerRow struct {
 	MemberID *int64 `bun:"member_id"`
 	Status   string `bun:"status"`
 }
 
-// isMemberOwner: true kalau order ini emang milik memberID -- order tanpa member (QR Order/tamu,
-// MemberID nil) otomatis false buat SIAPA PUN, gak ada member yang "punya" order tamu.
-func (o orderOwnerRow) isMemberOwner(memberID int64) bool {
-	return o.MemberID != nil && *o.MemberID == memberID
-}
-
 // CheckPaymentStatus: GET /api/order/:order_number/payment-status -- dipanggil buat POLLING
 // (mis. tiap beberapa detik) sambil QR ditampilin ke customer. Mirror PERSIS alur
-// PaymentGatewayServices::CheckStatus() POS (lihat KIOSK PAYMENT CHECK STATUS.md), DITAMBAH
-// pengecekan kepemilikan order (member_id harus cocok token yang login).
+// PaymentGatewayServices::CheckStatus() POS (lihat KIOSK PAYMENT CHECK STATUS.md).
 //
 // Alur:
-//  1. Cek order-nya punya member yang login (bukan cuma "ada").
-//  2. Idempotency guard -- kalau mb_order.status udah 'paid', langsung balikin 'paid' TANPA
+//  1. Idempotency guard -- kalau mb_order.status udah 'paid', langsung balikin 'paid' TANPA
 //     ngecek ulang ke gateway atau insert mb_order_payment lagi (polling berkali-kali gak
 //     dobel proses).
 //  3. Kalau belum, ambil attempt TERBARU dari mb_order_payment_request, live-check ke service
@@ -61,7 +51,6 @@ func (o orderOwnerRow) isMemberOwner(memberID int64) bool {
 //     yang customer-nya ninggalin app dan gak pernah polling lagi.
 func (h *handler) CheckPaymentStatus(c fiber.Ctx) error {
 	res := helpers.NewResponse()
-	memberID := middleware.MemberID(c)
 	orderNumber := c.Params("order_number")
 
 	ctx := c.Context()
@@ -74,10 +63,6 @@ func (h *handler) CheckPaymentStatus(c fiber.Ctx) error {
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
 	}
-	if !order.isMemberOwner(memberID) {
-		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
-	}
-
 	status, _, errMsg, err := SyncPaymentStatus(ctx, h.db, orderNumber, order.Status)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal cek status pembayaran"))

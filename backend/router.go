@@ -104,30 +104,43 @@ func RegisterRoutes(app *fiber.App) {
 	protectedAuthRouter.Post("/pin/change", authHandler.ChangePin)
 	protectedAuthRouter.Post("/logout", authHandler.Logout)
 
-	// PROTECTED (2026-08-24, digeser dari publik) -- preview breakdown harga/pajak SEBELUM
-	// order beneran disubmit, baca-only (gak insert apa pun ke mb_order*). Wajib login karena
-	// validasi promo butuh identitas member (member_type_id buat master_promo_type_members,
-	// saldo poin buat min_point_amount). Body sama persis kayak yang dipakai POST
-	// /api/order/create-order.
+	// PUBLIK (2026-09-22, digeser dari protected -- konfirmasi eksplisit) -- Authorization
+	// TIDAK WAJIB lagi di 5 endpoint order (Calculate/Create/GetDetail/CancelOrder/
+	// CheckPaymentStatus), X-App-Setting TETAP wajib (itu identitas tenant/database, bukan
+	// identitas customer). order_number ITU SENDIRI jadi "kunci akses" buat GetDetail/Cancel/
+	// CheckPaymentStatus -- siapa pun yang tau/pegang nomornya berhak akses, TIDAK ada validasi
+	// kepemilikan member tambahan (lihat isMemberOwner() yang DIHAPUS pemakaiannya di 3 handler
+	// itu). Kalau member TETAP login (token dikirim), middleware.MemberID(c) tetap keisi normal
+	// dan mb_order.member_id ikut kesimpen -- publik di sini artinya "boleh tanpa login", BUKAN
+	// "gak pernah pakai login". use_promo_ids DITOLAK kalau member_id kosong (gak login) --
+	// promo butuh identitas member buat validasi tipe/poin, sama pola QR Order.
+	//
+	// Cuma GetHistory yang TETAP wajib login (grup terpisah di bawah) -- basis datanya
+	// member_id, gak ada cara nampilin "riwayat" tanpa identitas.
 	orderHandler := order.NewHandler(config.DB)
-	orderRouter := root.Group("/order", middleware.Auth(config.DB))
-	orderRouter.Post("/calculate", orderHandler.Calculate)
-	// PROTECTED -- save order beneran (insert mb_order*) + trigger payment gateway (service
+	orderPublicRouter := root.Group("/order")
+	orderPublicRouter.Post("/calculate", orderHandler.Calculate)
+	// PUBLIK -- save order beneran (insert mb_order*) + trigger payment gateway (service
 	// `payment`, dev/payment/) dalam 1 call. Lihat DOKUMENTASI API/MOBILE/ORDER/CREATE ORDER.md.
-	orderRouter.Post("/create-order", orderHandler.Create)
-	// PROTECTED -- polling status pembayaran (live-check ke service `payment`), finalisasi
+	orderPublicRouter.Post("/create-order", orderHandler.Create)
+	// PUBLIK -- polling status pembayaran (live-check ke service `payment`), finalisasi
 	// mb_order_payment pas settlement, sinkronin mb_order.status pas expired. Lihat
 	// DOKUMENTASI API/MOBILE/ORDER/PAYMENT STATUS.md.
-	orderRouter.Get("/:order_number/payment-status", orderHandler.CheckPaymentStatus)
-	// PROTECTED -- batalin order SEBELUM bayar (race-guard aware, lihat DOKUMENTASI
+	orderPublicRouter.Get("/:order_number/payment-status", orderHandler.CheckPaymentStatus)
+	// PUBLIK -- batalin order SEBELUM bayar (race-guard aware, lihat DOKUMENTASI
 	// API/MOBILE/ORDER/CANCEL ORDER.md).
-	orderRouter.Post("/:order_number/cancel", orderHandler.CancelOrder)
-	// PROTECTED -- riwayat order milik member yang login. Lihat DOKUMENTASI
-	// API/MOBILE/ORDER/ORDER HISTORY.md.
-	orderRouter.Get("/history", orderHandler.GetHistory)
-	// PROTECTED -- detail lengkap 1 order (breakdown item + QR ulang kalau masih pending).
+	orderPublicRouter.Post("/:order_number/cancel", orderHandler.CancelOrder)
+	// PUBLIK -- detail lengkap 1 order (breakdown item + QR ulang kalau masih pending).
 	// Lihat DOKUMENTASI API/MOBILE/ORDER/ORDER DETAIL.md.
-	orderRouter.Get("/:order_number", orderHandler.GetDetail)
+	orderPublicRouter.Get("/:order_number", orderHandler.GetDetail)
+
+	// PROTECTED -- riwayat order milik member yang login, satu-satunya endpoint /order yang
+	// TETAP wajib Authorization. Grup TERPISAH dari orderPublicRouter di atas (bukan sub-route
+	// grup yang sama) -- middleware.Auth scoped ke grup Go ini doang, gak bocor ke prefix /order
+	// lain (beda dari middleware.AppSetting yang dipasang di app.Group("/api") level root app).
+	// Lihat DOKUMENTASI API/MOBILE/ORDER/ORDER HISTORY.md.
+	orderProtectedRouter := root.Group("/order", middleware.Auth(config.DB))
+	orderProtectedRouter.Get("/history", orderHandler.GetHistory)
 
 	// PROTECTED -- profil akun customer yang lagi login.
 	accountHandler := account.NewHandler(config.DB)

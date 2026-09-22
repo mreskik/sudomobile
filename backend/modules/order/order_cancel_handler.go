@@ -6,7 +6,6 @@ import (
 	"errors"
 
 	"sudomobile/backend/helpers"
-	"sudomobile/backend/middleware"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/uptrace/bun"
@@ -21,6 +20,10 @@ type cancelOrderRequest struct {
 // ada hold/edit kayak POS kasir) -- jadi cancel-nya juga simpel: langsung ubah status order,
 // gak ada state "hold" yang perlu ditangani terpisah kayak OrderServices::CancelOrder() POS.
 //
+// PUBLIK (2026-09-22) -- gak wajib Authorization lagi, gak ada cek kepemilikan (dulu lewat
+// isMemberOwner()). order_number sendiri jadi kunci akses: siapa pun yang tau/pegang nomornya
+// berhak cancel order itu -- lihat catatan di router.go.
+//
 // TETEP mirror bagian PALING PENTING dari pola POS: race guard sebelum cancel attempt payment
 // yang masih pending (lihat cancelPendingAttempt()) -- kalau ternyata customer keburu bayar
 // PERSIS pas mau di-cancel, order otomatis di-finalize jadi 'paid' (BUKAN di-cancel), biar duit
@@ -28,7 +31,6 @@ type cancelOrderRequest struct {
 // ke-mark paid).
 func (h *handler) CancelOrder(c fiber.Ctx) error {
 	res := helpers.NewResponse()
-	memberID := middleware.MemberID(c)
 	orderNumber := c.Params("order_number")
 
 	var body cancelOrderRequest
@@ -43,9 +45,6 @@ func (h *handler) CancelOrder(c fiber.Ctx) error {
 			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
-	}
-	if !order.isMemberOwner(memberID) {
-		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 	}
 	if order.Status != "pending" {
 		return c.JSON(res.SetCode(100).SetMessage("bukan order pending, gak bisa di-cancel"))

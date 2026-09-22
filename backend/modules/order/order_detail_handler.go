@@ -6,16 +6,16 @@ import (
 	"errors"
 
 	"sudomobile/backend/helpers"
-	"sudomobile/backend/middleware"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/uptrace/bun"
 )
 
 // MemberID *int64 (2026-09-17, migration sudocore2 208) -- mb_order.member_id sekarang NULLABLE
-// (order QR Order = tamu). Pointer WAJIB biar gak Scan error; kepemilikan dicek di GetDetail()
-// lewat isMemberOwner() (order_payment_status_handler.go) -- order tamu otomatis "bukan milik"
-// member manapun.
+// (order tamu, baik QR Order maupun member app yang gak login -- lihat catatan 2026-09-22 di
+// router.go). Pointer WAJIB biar gak Scan error. GetDetail() SENGAJA TIDAK cek kepemilikan lagi
+// (dulu lewat isMemberOwner()) -- order_number itu sendiri jadi kunci akses, siapa pun yang
+// tau/pegang nomornya berhak liat detailnya, endpoint ini publik (gak wajib Authorization).
 type orderDetailHeader struct {
 	MemberID            *int64  `bun:"member_id"`
 	OrderNumber         string  `bun:"order_number"`
@@ -109,7 +109,6 @@ type orderDetailResult struct {
 // CheckPaymentStatus()) -- BUKAN minta QR baru (retry), cuma nampilin ulang yang lama.
 func (h *handler) GetDetail(c fiber.Ctx) error {
 	res := helpers.NewResponse()
-	memberID := middleware.MemberID(c)
 	orderNumber := c.Params("order_number")
 
 	ctx := c.Context()
@@ -129,9 +128,6 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 		}
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
-	}
-	if header.MemberID == nil || *header.MemberID != memberID {
-		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
 	}
 
 	items, payment, err := resolveOrderDetailCore(ctx, h.db, orderNumber, header.Status)
