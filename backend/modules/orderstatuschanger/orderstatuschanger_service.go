@@ -1,9 +1,15 @@
-// Package orderexpiry: background job -- sinkronin mb_order.status jadi 'expired' buat order
-// yang QR pembayarannya udah kadaluarsa tapi customer-nya gak pernah balik lagi manggil
-// payment-status/order-detail (yang biasanya jadi titik sinkronisasi). Pola-nya niru PERSIS
-// pointcheck di sudocore2 (RunLoop()/RunOnce(), gak pakai library cron eksternal) -- lihat
-// DOKUMENTASI BACKGROUND JOB/POLA UMUM.md.
-package orderexpiry
+// Package orderstatuschanger: background job -- sinkronin mb_order.status buat order yang QR
+// pembayarannya udah kadaluarsa tapi customer-nya gak pernah balik lagi manggil
+// payment-status/order-detail (yang biasanya jadi titik sinkronisasi). SENGAJA gak dinamain
+// "orderexpiry" (nama lama, di-rename 2026-09-22 bareng topupstatuschanger buat konsistensi) --
+// hasil akhirnya BUKAN cuma 'expired', race guard di SyncPaymentStatus() bisa aja nemuin
+// gateway-nya ternyata udah 'settlement' (customer sempet bayar tepat sebelum sweep jalan), dan
+// order itu di-finalize jadi 'paid', bukan di-mark expired. Nama "expiry" nyesetin, seolah-olah
+// satu-satunya hasil yang mungkin cuma 1 arah.
+//
+// Pola-nya niru PERSIS pointcheck di sudocore2 (RunLoop()/RunOnce(), gak pakai library cron
+// eksternal) -- lihat DOKUMENTASI BACKGROUND JOB/POLA UMUM.md.
+package orderstatuschanger
 
 import (
 	"context"
@@ -14,25 +20,25 @@ import (
 	"sudomobile/backend/modules/order"
 )
 
-// RunLoop: jalan di goroutine terpisah (dipanggil `go orderexpiry.RunLoop()` dari main.go, SAMA
-// proses/binary kayak HTTP server-nya, bukan cmd/binary sendiri). Interval 5 menit -- sama kayak
-// pointcheck/memberbalancejurnal (job ini sifatnya jaring pengaman, bukan yang utama nge-sync
-// status real-time -- itu udah kejadian tiap polling payment-status/buka order-detail -- jadi
-// gak butuh interval lebih cepat dari itu).
+// RunLoop: jalan di goroutine terpisah (dipanggil `go orderstatuschanger.RunLoop()` dari
+// main.go, SAMA proses/binary kayak HTTP server-nya, bukan cmd/binary sendiri). Interval 5 menit
+// -- sama kayak pointcheck/memberbalancejurnal (job ini sifatnya jaring pengaman, bukan yang
+// utama nge-sync status real-time -- itu udah kejadian tiap polling payment-status/buka
+// order-detail -- jadi gak butuh interval lebih cepat dari itu).
 func RunLoop() {
 	interval := 5 * time.Minute
-	log.Println("orderexpiry: RunLoop jalan, interval", interval)
+	log.Println("orderstatuschanger: RunLoop jalan, interval", interval)
 
 	for {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
-					log.Println("orderexpiry: panic ke-recover:", r)
+					log.Println("orderstatuschanger: panic ke-recover:", r)
 				}
 			}()
 
 			if err := RunOnce(context.Background()); err != nil {
-				log.Println("orderexpiry: error:", err)
+				log.Println("orderstatuschanger: error:", err)
 			}
 		}()
 
@@ -48,14 +54,15 @@ func RunLoop() {
 //     payment-status/order-detail, BUKAN diimplementasi ulang di sini. Otomatis race-guard-aware:
 //     kalau ternyata pas di-live-check status gateway-nya udah 'settlement' (customer sempet
 //     bayar tepat sebelum sweep ini jalan), order di-finalize jadi 'paid', BUKAN ke-mark
-//     'expired' keliru.
+//     'expired' keliru -- INI ALASAN kenapa job ini gak dinamain "expiry" (lihat komentar
+//     package di atas).
 func RunOnce(ctx context.Context) error {
 	start := time.Now()
-	log.Println("orderexpiry: mulai jalan")
+	log.Println("orderstatuschanger: mulai jalan")
 
 	synced := 0
 	defer func() {
-		log.Printf("orderexpiry: selesai (durasi %s, %d order disinkronin)\n", time.Since(start), synced)
+		log.Printf("orderstatuschanger: selesai (durasi %s, %d order disinkronin)\n", time.Since(start), synced)
 	}()
 
 	candidates, err := fetchCandidateOrders(ctx)
@@ -63,22 +70,22 @@ func RunOnce(ctx context.Context) error {
 		return err
 	}
 	if len(candidates) == 0 {
-		log.Println("orderexpiry: gak ada order kandidat, skip")
+		log.Println("orderstatuschanger: gak ada order kandidat, skip")
 		return nil
 	}
-	log.Println("orderexpiry:", len(candidates), "order kandidat ke-temu")
+	log.Println("orderstatuschanger:", len(candidates), "order kandidat ke-temu")
 
 	for _, c := range candidates {
 		status, _, errMsg, err := order.SyncPaymentStatus(ctx, config.DB, c.OrderNumber, c.Status)
 		if err != nil {
-			log.Println("orderexpiry: gagal sync order", c.OrderNumber, ":", err)
+			log.Println("orderstatuschanger: gagal sync order", c.OrderNumber, ":", err)
 			continue
 		}
 		if errMsg != "" {
-			log.Println("orderexpiry: skip order", c.OrderNumber, ":", errMsg)
+			log.Println("orderstatuschanger: skip order", c.OrderNumber, ":", errMsg)
 			continue
 		}
-		log.Println("orderexpiry: order", c.OrderNumber, "disinkronin jadi", status)
+		log.Println("orderstatuschanger: order", c.OrderNumber, "disinkronin jadi", status)
 		synced++
 	}
 

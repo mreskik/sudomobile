@@ -141,15 +141,15 @@ gak ada yang perlu disiapin dari sekarang.
   2026-09-18, lihat "Nomor meja" di atas) — DIBUANG dari scope Create Order v1, bukan cuma nyusul.
 - **Bayar online (QRIS)** lewat service `payment` — alur, `mb_order_payment_request`, sync status,
   `expired_at`, semuanya **sama persis** member app; gak ada bayar di kasir di v1.
-- Pull ke POS, job `orderexpiry`, format `order_number`/`payment_number` → otomatis kepakai karena
+- Pull ke POS, job `orderstatuschanger`, format `order_number`/`payment_number` → otomatis kepakai karena
   tabelnya sama. POS bedain lewat `order_source` — **SELESAI** (2026-09-17): APIANDORDER
   `GetPending()` udah ngalirin kolom ini, `MobileOrderPullServices.php` udah baca dari payload
   (bukan hardcode lagi). Detail & hasil tes di `CREATE ORDER.md`.
 - **Cancel oleh customer — Keputusan 2026-09-18: GAK DIBUTUHIN, gak dibikin versi QR-nya.**
   Ditelusuri ke kode: `CancelOrder()` member app (`order_cancel_handler.go:50-52`) cuma bisa jalan
   kalau `status = 'pending'` (murni operasi PRA-bayar, bukan pembatalan order yang udah bayar).
-  Order `pending` yang gak pernah dibayar **udah otomatis** kesapu job `orderexpiry`
-  (`orderexpiry_service.go`, jalan tiap 5 menit, `WHERE mo.status = 'pending' AND
+  Order `pending` yang gak pernah dibayar **udah otomatis** kesapu job `orderstatuschanger`
+  (`orderstatuschanger_service.go`, jalan tiap 5 menit, `WHERE mo.status = 'pending' AND
   latest_pr.expired_at < now()` — **gak ada filter `order_source`**, jadi order QR udah kecover
   otomatis TANPA kode tambahan apa pun). Ditambah `GetPending()` APIANDORDER cuma narik
   `status = 'paid'` — order pending yang dibiarin mangkrak **gak pernah nyampe POS sama sekali**,
@@ -292,7 +292,7 @@ Diisi belakangan — yang udah pasti:
   bukan nyusul — lihat "Nomor meja" di atas), **Cancel oleh customer GAK DIBUTUHIN** (lihat "Order
   & pembayaran" di atas) — ditelusuri ke kode, `CancelOrder()` member app cuma jalan buat order
   `pending` (pra-bayar), dan order `pending` yang gak dibayar udah otomatis kesapu job
-  `orderexpiry` (gak ada filter `order_source`, QR Order udah kecover dari sononya) + `GetPending()`
+  `orderstatuschanger` (gak ada filter `order_source`, QR Order udah kecover dari sononya) + `GetPending()`
   APIANDORDER cuma narik `status='paid'` — order QR yang mangkrak gak pernah nyampe POS, gak ada
   yang perlu "dibersihin" lewat cancel.
 - 2026-09-18 — Gap **"flag branch-aktif cuma dicek di Get Branch List"** DIBERESIN. Flag khusus

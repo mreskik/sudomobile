@@ -16,7 +16,7 @@ dari client, 2 langkah backend, **REUSE LANGSUNG** alur & fungsi inti
 package `order` yang sama, cuma header `mb_order` & sumber identitas yang beda). Yang beda:
 identitas request (4 kode di query, bukan token+`X-App-Setting`), identitas customer (**tamu**,
 bukan member), dan penanda `order_source = 'qr'`. Tabelnya **`mb_order`/`mb_order_detail`/
-`_package`/`mb_order_payment_request` yang sama** — pull ke POS, job `orderexpiry`, sync status
+`_package`/`mb_order_payment_request` yang sama** — pull ke POS, job `orderstatuschanger`, sync status
 pembayaran, format `order_number`/`payment_number` semuanya langsung kepakai tanpa perubahan.
 
 ## Request
@@ -166,7 +166,7 @@ sama pola kayak member app.
 
 Setelah `paid`, order ditarik POS lewat mekanisme pull yang udah ada, POS bedain lewat
 `order_source` (jalur ini **udah disesuaikan**, lihat "Riwayat perubahan skema" bagian 3 di bawah).
-Yang gak dibayar sampai `expired_at` diberesin job `orderexpiry`.
+Yang gak dibayar sampai `expired_at` diberesin job `orderstatuschanger`.
 
 ## Catatan implementasi
 
@@ -276,7 +276,7 @@ aktif, di luar lingkup sesi ini).
 ## Risiko yang diterima
 
 - **Publik tanpa hambatan** — siapa pun bisa nembak endpoint ini bikin order kosong-harga/spam
-  (order `pending` yang gak dibayar bakal `expired` sendiri lewat `orderexpiry`, tapi tetep
+  (order `pending` yang gak dibayar bakal `expired` sendiri lewat `orderstatuschanger`, tapi tetep
   numpuk). Sama kelas risikonya kayak Booking Create customer di sudobarber — barier (captcha/rate
   limit) ditunda, dicatat sebagai pending.
 - **`order_number` doang buat akses detail** (keputusan 2026-09-17) — lihat [`ORDER DETAIL.md`](./08%20ORDER%20DETAIL.md).

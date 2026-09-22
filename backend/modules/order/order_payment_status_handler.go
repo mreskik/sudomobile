@@ -46,9 +46,9 @@ type orderOwnerRow struct {
 //     jadi 'paid'.
 //  6. Kalau expired -> mb_order.status ikut disinkronin jadi 'expired' (guard WHERE
 //     status='pending', biar gak nabrak state lain). Selain dipicu polling manual kayak di
-//     sini, sinkronisasi yang sama juga dijalanin background job `orderexpiry` (5 menit
-//     sekali, lihat DOKUMENTASI BACKGROUND JOB/ORDER EXPIRY.md) -- jaring pengaman buat order
-//     yang customer-nya ninggalin app dan gak pernah polling lagi.
+//     sini, sinkronisasi yang sama juga dijalanin background job `orderstatuschanger` (5 menit
+//     sekali, lihat DOKUMENTASI BACKGROUND JOB/ORDER STATUS CHANGER.md) -- jaring pengaman buat
+//     order yang customer-nya ninggalin app dan gak pernah polling lagi.
 func (h *handler) CheckPaymentStatus(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 	orderNumber := c.Params("order_number")

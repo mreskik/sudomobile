@@ -91,7 +91,7 @@ pending ──(bayar sukses)──────────→ paid
    └──(customer cancel manual)────→ cancel
 ```
 
-- `pending` → `paid`/`expired` **gak otomatis real-time** — butuh ada yang manggil `payment-status` atau buka `order-detail` (client-triggered), ATAU nunggu [background job `orderexpiry`](../../DOKUMENTASI%20BACKGROUND%20JOB/ORDER%20EXPIRY.md) jalan (tiap 5 menit, jaring pengaman doang — **jangan andelin ini buat UX real-time**, FE tetap harus polling `payment-status` sendiri sambil QR ditampilin).
+- `pending` → `paid`/`expired` **gak otomatis real-time** — butuh ada yang manggil `payment-status` atau buka `order-detail` (client-triggered), ATAU nunggu [background job `orderstatuschanger`](../../DOKUMENTASI%20BACKGROUND%20JOB/ORDER%20STATUS%20CHANGER.md) jalan (tiap 5 menit, jaring pengaman doang — **jangan andelin ini buat UX real-time**, FE tetap harus polling `payment-status` sendiri sambil QR ditampilin).
 - **Gak ada state kelima.** Order yang `expired`/`cancel` **gak bisa "dilanjutkan"** — belum ada endpoint retry, satu-satunya jalan customer checkout lagi adalah bikin order BARU (`create-order` lagi dari cart). Jangan desain UI yang nawarin "bayar lagi" ke order yang udah `expired`/`cancel` — arahin ke "checkout ulang" (balik ke cart, bukan ke order lama).
 - Kalau customer nutup app/kehilangan koneksi PAS QR lagi ditampilin dan buka lagi nanti (order masih `pending`), **QR yang sama bisa dimunculin ulang** lewat `GET /order/:order_number` (`order-detail`) — field `payment.vendor_qr_string`/`vendor_qr_url` bakal keisi lagi kalau statusnya masih `pending`, `null` kalau udah bukan `pending`. Ini BUKAN minta QR baru, jadi kode/nominal-nya tetap sama.
 

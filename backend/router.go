@@ -12,6 +12,7 @@ import (
 	"sudomobile/backend/modules/order"
 	"sudomobile/backend/modules/paymentmethod"
 	"sudomobile/backend/modules/promo"
+	"sudomobile/backend/modules/topup"
 	"sudomobile/backend/modules/visitpurpose"
 
 	"github.com/gofiber/fiber/v3"
@@ -154,6 +155,15 @@ func RegisterRoutes(app *fiber.App) {
 	accountRouter.Get("/tier-list", accountHandler.TierList)
 	accountRouter.Post("/photo", accountHandler.UpdatePhoto)
 	accountRouter.Get("/tier-spending", accountHandler.TierSpending)
+
+	// TOPUP -- top-up saldo dompet member, SELALU wajib login (beda dari /order yang sekarang
+	// publik) -- gak ada skenario "top-up tanpa identitas". SELALU lewat payment gateway (gak
+	// ada jalur tunai kayak Kiosk/POS, customer app gak pernah pegang uang fisik). Reuse
+	// GET PAYMENT METHOD LIST.md yang sudah ada buat resolve payment_gateway_code (gak ada
+	// endpoint list terpisah, disepakati eksplisit). Lihat DOKUMENTASI API/MOBILE/ACCOUNT/TOP UP.md.
+	topupHandler := topup.NewHandler(config.DB)
+	accountRouter.Post("/balance/topup", topupHandler.Create)
+	accountRouter.Get("/balance/topup/:reference_number/status", topupHandler.CheckStatus)
 
 	// QR ORDER -- SENGAJA di luar group `root` (gak lewat middleware.AppSetting sama sekali,
 	// keputusan sesi 2026-09-17). Identitas tenant/branch/visit-purpose gantiin X-App-Setting

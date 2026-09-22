@@ -7,7 +7,8 @@ import (
 	"sudomobile/backend"
 	"sudomobile/backend/config"
 	"sudomobile/backend/heartbeat"
-	"sudomobile/backend/modules/orderexpiry"
+	"sudomobile/backend/modules/orderstatuschanger"
+	"sudomobile/backend/modules/topupstatuschanger"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/joho/godotenv"
@@ -25,7 +26,8 @@ func main() {
 	heartbeat.InitOfflineThreshold()
 
 	// Background job -- lihat DOKUMENTASI BACKGROUND JOB/POLA UMUM.md.
-	go orderexpiry.RunLoop()
+	go orderstatuschanger.RunLoop()
+	go topupstatuschanger.RunLoop()
 
 	app := fiber.New()
 

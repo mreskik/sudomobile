@@ -21,7 +21,7 @@ Authorization: Bearer <token>
 
 - **Bukan `SUM`** — saldo terkini itu `balance_after` di baris **TERAKHIR** `member_balance_ledger` (`ORDER BY created_at DESC, id DESC LIMIT 1`), sama persis formula `GetBalance()` di `sudocore2` (`backend/modules/master/member/member_services.go`). Tiap baris ledger udah nyimpen snapshot saldo setelah transaksi itu, jadi gak perlu jumlahin semua baris.
 - Mau riwayat transaksi, bukan cuma angka terkini? Lihat [BALANCE HISTORY.md](BALANCE%20HISTORY.md).
-- Cara top-up saldo belum ada dokumentasinya di sini (belum ada endpoint top-up dari `sudomobile` — kalau ada, jalurnya lewat Kiosk/`member_topup_online`, lihat `sudocore2`/`POS`).
+- Mau top-up saldo dari `sudomobile`? Lihat [TOP UP.md](TOP%20UP.md) (**2026-09-22**, baru ditambahkan — reuse tabel `member_topup_online`/`member_balance_ledger` yang sama dipakai Kiosk/POS).
 
 ## Tervalidasi
 
