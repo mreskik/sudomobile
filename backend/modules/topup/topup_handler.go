@@ -1,6 +1,9 @@
 package topup
 
 import (
+	"strings"
+	"time"
+
 	"sudomobile/backend/helpers"
 	"sudomobile/backend/middleware"
 
@@ -11,6 +14,7 @@ import (
 type Handler interface {
 	Create(c fiber.Ctx) error
 	CheckStatus(c fiber.Ctx) error
+	History(c fiber.Ctx) error
 }
 
 type handler struct {
@@ -62,4 +66,30 @@ func (h *handler) CheckStatus(c fiber.Ctx) error {
 	}
 
 	return c.JSON(res.Success().SetData(data))
+}
+
+// History: GET /account/balance/topup/history -- PROTECTED. SEMUA percobaan top-up member yang
+// lagi login (pending/paid/expired/cancel/failed), BEDA dari BALANCE HISTORY.md
+// (account/balance_handler.go) yang cuma nampilin transaksi yang UDAH settlement. Aturan
+// start_date/end_date SAMA PERSIS BalanceHistory()/PointHistory() (kosong dua-duanya = hari ini).
+func (h *handler) History(c fiber.Ctx) error {
+	res := helpers.NewResponse()
+	memberID := middleware.MemberID(c)
+
+	today := time.Now().Format("2006-01-02")
+	startDate := strings.TrimSpace(c.Query("start_date"))
+	if startDate == "" {
+		startDate = today
+	}
+	endDate := strings.TrimSpace(c.Query("end_date"))
+	if endDate == "" {
+		endDate = today
+	}
+
+	list, err := GetTopupHistory(c.Context(), h.db, memberID, startDate, endDate)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal ambil riwayat top up"))
+	}
+
+	return c.JSON(res.Success().SetData(list))
 }

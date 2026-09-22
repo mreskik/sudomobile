@@ -160,9 +160,14 @@ func RegisterRoutes(app *fiber.App) {
 	// publik) -- gak ada skenario "top-up tanpa identitas". SELALU lewat payment gateway (gak
 	// ada jalur tunai kayak Kiosk/POS, customer app gak pernah pegang uang fisik). Reuse
 	// GET PAYMENT METHOD LIST.md yang sudah ada buat resolve payment_gateway_code (gak ada
-	// endpoint list terpisah, disepakati eksplisit). Lihat DOKUMENTASI API/MOBILE/ACCOUNT/TOP UP.md.
+	// endpoint list terpisah, disepakati eksplisit). Lihat DOKUMENTASI API/MOBILE/ACCOUNT/TOP UP/
+	// (CREATE.md, CHECK STATUS.md, HISTORY.md).
 	topupHandler := topup.NewHandler(config.DB)
 	accountRouter.Post("/balance/topup", topupHandler.Create)
+	// history didaftarkan SEBELUM /:reference_number/status -- kalau kebalik, path ini bakal
+	// ketangkep sama route dinamis itu duluan (reference_number="history"), sama pola kayak
+	// brand dropdown (lihat catatan di blok company/brand routes sudocore2).
+	accountRouter.Get("/balance/topup/history", topupHandler.History)
 	accountRouter.Get("/balance/topup/:reference_number/status", topupHandler.CheckStatus)
 
 	// QR ORDER -- SENGAJA di luar group `root` (gak lewat middleware.AppSetting sama sekali,

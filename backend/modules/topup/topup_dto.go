@@ -1,8 +1,10 @@
 package topup
 
+import "time"
+
 // createTopupRequest -- body POST /account/balance/topup. branch_id WAJIB (dikirim dari
-// frontend, hasil user pilih outlet di halaman top-up -- lihat diskusi di TOP UP.md kenapa gak
-// ada default/auto-resolve) dan sekaligus dipakai isi member_topup_online.branch_id (murni
+// frontend, hasil user pilih outlet di halaman top-up -- lihat diskusi di TOP UP/CREATE.md kenapa
+// gak ada default/auto-resolve) dan sekaligus dipakai isi member_topup_online.branch_id (murni
 // tracking asal transaksi, TIDAK dipakai buat jurnal -- lihat MEMBER BALANCE JURNAL.md, branch
 // jurnal resolve dari master_setting_member_saldo_env, bukan dari sini).
 //
@@ -18,9 +20,13 @@ package topup
 // situ, bisa ambigu kalau ada >1 payment method beda pakai kode gateway yang sama -- ini bug yang
 // sempat kejadian di Kiosk sebelum diperbaiki bareng, lihat DOKUMENTASI BACKGROUND JOB/MEMBER
 // BALANCE JURNAL.md di sudocore2).
+// Amount string (2026-09-22, DIBENERIN -- sebelumnya sempat float64, gak konsisten sama standar
+// aplikasi: SEMUA field nominal uang di sudomobile itu string, bukan float -- TaxAmount/
+// DiscountAmount/dst di order, balance_in/balance_after di ledger, dst. float cuma buat data yang
+// emang butuh presisi desimal bebas kayak koordinat GPS (latitude/longitude branch), BUKAN duit).
 type createTopupRequest struct {
 	BranchID        int64   `json:"branch_id"`
-	Amount          float64 `json:"amount"`
+	Amount          string  `json:"amount"`
 	PaymentMethodID int64   `json:"payment_method_id"`
 	Notes           *string `json:"notes"`
 }
@@ -41,4 +47,17 @@ type checkTopupStatusResponse struct {
 	ReferenceNumber string  `json:"reference_number"`
 	Status          string  `json:"status"`
 	BalanceAfter    *string `json:"balance_after,omitempty"`
+}
+
+// topupHistoryRow -- 1 baris respons GET history. SEMUA percobaan top-up (pending/paid/expired/
+// cancel/failed), BEDA dari BALANCE HISTORY.md (account/balance_handler.go) yang cuma nampilin
+// transaksi yang UDAH settlement (baca member_balance_ledger, baris situ baru ada abis paid).
+// Di sini baca member_topup_online langsung -- customer bisa liat "topup gue kemarin kenapa gak
+// masuk-masuk" (percobaan gagal/expired/masih pending juga kelihatan).
+type topupHistoryRow struct {
+	ReferenceNumber string     `json:"reference_number"`
+	Amount          string     `json:"amount"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	PaidAt          *time.Time `json:"paid_at,omitempty"`
 }

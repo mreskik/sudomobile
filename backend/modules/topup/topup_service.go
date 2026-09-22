@@ -5,11 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
-	"strconv"
+	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
 )
 
@@ -54,7 +54,10 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 	if req.BranchID == 0 {
 		return nil, "branch_id wajib diisi", nil
 	}
-	if req.Amount <= 0 {
+	// decimal, BUKAN float64 -- ini duit, presisi gak boleh keganggu floating-point (sama pola
+	// decimal.NewFromString() yang dipakai luas di sudocore2 buat urusan nominal/akuntansi).
+	amount, err := decimal.NewFromString(strings.TrimSpace(req.Amount))
+	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
 		return nil, "amount wajib lebih dari 0", nil
 	}
 	if req.PaymentMethodID == 0 {
@@ -63,7 +66,7 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 
 	var companyID *int
 	var branchCode string
-	err := db.NewRaw(`SELECT company_id, COALESCE(code, '') FROM master_branch WHERE id = ?`, req.BranchID).Scan(ctx, &companyID, &branchCode)
+	err = db.NewRaw(`SELECT company_id, COALESCE(code, '') FROM master_branch WHERE id = ?`, req.BranchID).Scan(ctx, &companyID, &branchCode)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, "branch tidak ditemukan", nil
@@ -80,7 +83,10 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 	}
 
 	referenceNumber := generateTopupReference(branchCode)
-	amountStr := strconv.FormatFloat(req.Amount, 'f', 2, 64)
+	// amount di-normalisasi ulang jadi 2 desimal (bukan req.Amount apa adanya) -- client bisa
+	// kirim format bebas ("100000", "100000.5", dst), disamain dulu biar konsisten sama kolom
+	// NUMERIC(20,2) di DB.
+	amountStr := amount.StringFixed(2)
 	now := time.Now()
 
 	topupRow := MemberTopupOnlineModel{
@@ -100,7 +106,7 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 		return nil, "", err
 	}
 
-	amountInt := int64(math.Round(req.Amount))
+	amountInt := amount.Round(0).IntPart()
 	gatewayResp, err := requestQrisPayment(referenceNumber, paymentGatewayCode, amountInt, req.BranchID)
 	if err != nil {
 		// gagal minta QR -- attempt ini gak jadi kepakai, jangan nyangkut 'pending' palsu (sama
@@ -276,4 +282,23 @@ func getLastBalance(ctx context.Context, db *bun.DB, memberID int64) (string, er
 		return "", err
 	}
 	return balance, nil
+}
+
+// GetTopupHistory: SEMUA percobaan top-up member yang lagi login, terbaru duluan -- BEDA dari
+// BALANCE HISTORY.md (baca member_balance_ledger, cuma transaksi yang UDAH settlement). Di sini
+// baca member_topup_online LANGSUNG, semua status (pending/paid/expired/cancel/failed) ikut
+// muncul -- customer bisa liat "topup gue kemarin kenapa gak masuk-masuk". start_date/end_date
+// OPSIONAL, kosong dua-duanya = default HARI INI (SAMA aturan BalanceHistory()/PointHistory()
+// account/balance_handler.go -- biar gak narik seluruh histori tanpa sengaja).
+func GetTopupHistory(ctx context.Context, db *bun.DB, memberID int64, startDate, endDate string) ([]topupHistoryRow, error) {
+	list := []topupHistoryRow{}
+	err := db.NewRaw(`
+		SELECT reference_number, amount, status, created_at, paid_at
+		FROM member_topup_online
+		WHERE member_id = ?
+		  AND created_at >= ?::date
+		  AND created_at < (?::date + interval '1 day')
+		ORDER BY created_at DESC, id DESC
+	`, memberID, startDate, endDate).Scan(ctx, &list)
+	return list, err
 }

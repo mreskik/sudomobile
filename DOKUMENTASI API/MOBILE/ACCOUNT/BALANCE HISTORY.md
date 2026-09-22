@@ -51,6 +51,7 @@ List kosong `[]` kalau gak ada transaksi di rentang tanggal itu (bukan error).
 - Sama persis query/aturan `GetBalanceHistory()` di `sudocore2` (`backend/modules/master/member/member_services.go`) — cuma di-scope ke member yang lagi login lewat session, bukan terima `member_id` dari param kayak endpoint ERP-nya.
 - Baris yang `is_deleted = true` gak ikut muncul.
 - Urutan **terbaru duluan** (`created_at DESC, id DESC`).
+- **Cuma nampilin transaksi yang UDAH settlement** (baris di `member_balance_ledger` baru ada abis `paid`) — kalau mau liat SEMUA percobaan top-up termasuk yang gagal/pending/expired, lihat [TOP UP/HISTORY.md](TOP%20UP/HISTORY.md).
 
 ## Tervalidasi
 
