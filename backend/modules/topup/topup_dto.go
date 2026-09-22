@@ -54,10 +54,20 @@ type checkTopupStatusResponse struct {
 // transaksi yang UDAH settlement (baca member_balance_ledger, baris situ baru ada abis paid).
 // Di sini baca member_topup_online langsung -- customer bisa liat "topup gue kemarin kenapa gak
 // masuk-masuk" (percobaan gagal/expired/masih pending juga kelihatan).
+//
+// BranchName (2026-09-22) -- JOIN master_branch, resolve dari member_topup_online.branch_id
+// (branch ASAL transaksi top-up, murni tracking -- BUKAN branch jurnal, lihat catatan di
+// CreateTopup()/MEMBER BALANCE JURNAL.md). Nullable -- branch_id sendiri nullable di skema
+// (walau sudomobile SELALU ngisi, kolom ini shared sama Kiosk/POS yang mungkin beda perilaku).
+// Source -- 'pos'/'kiosk'/'mobile', biar keliatan asal top-up itu darimana (relevan karena
+// history ini gak di-filter source, tapi scoped ke member yang login -- 1 member bisa top-up
+// dari channel manapun).
 type topupHistoryRow struct {
 	ReferenceNumber string     `json:"reference_number"`
 	Amount          string     `json:"amount"`
 	Status          string     `json:"status"`
+	Source          string     `json:"source"`
+	BranchName      *string    `json:"branch_name"`
 	CreatedAt       time.Time  `json:"created_at"`
 	PaidAt          *time.Time `json:"paid_at,omitempty"`
 }

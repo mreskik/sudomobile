@@ -293,12 +293,14 @@ func getLastBalance(ctx context.Context, db *bun.DB, memberID int64) (string, er
 func GetTopupHistory(ctx context.Context, db *bun.DB, memberID int64, startDate, endDate string) ([]topupHistoryRow, error) {
 	list := []topupHistoryRow{}
 	err := db.NewRaw(`
-		SELECT reference_number, amount, status, created_at, paid_at
-		FROM member_topup_online
-		WHERE member_id = ?
-		  AND created_at >= ?::date
-		  AND created_at < (?::date + interval '1 day')
-		ORDER BY created_at DESC, id DESC
+		SELECT mto.reference_number, mto.amount, mto.status, mto.source, mb.name AS branch_name,
+		       mto.created_at, mto.paid_at
+		FROM member_topup_online mto
+		LEFT JOIN master_branch mb ON mb.id = mto.branch_id
+		WHERE mto.member_id = ?
+		  AND mto.created_at >= ?::date
+		  AND mto.created_at < (?::date + interval '1 day')
+		ORDER BY mto.created_at DESC, mto.id DESC
 	`, memberID, startDate, endDate).Scan(ctx, &list)
 	return list, err
 }

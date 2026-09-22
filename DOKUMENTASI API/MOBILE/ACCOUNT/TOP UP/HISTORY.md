@@ -22,6 +22,8 @@ Sama persis aturan [`BALANCE HISTORY.md`](../BALANCE%20HISTORY.md)/[`POINT HISTO
       "reference_number": "TUSBE2026092210004571",
       "amount": "100000.00",
       "status": "paid",
+      "source": "mobile",
+      "branch_name": "SUDO BREW - EVENT",
       "created_at": "2026-09-22T10:10:35+07:00",
       "paid_at": "2026-09-22T10:15:12+07:00"
     },
@@ -29,17 +31,19 @@ Sama persis aturan [`BALANCE HISTORY.md`](../BALANCE%20HISTORY.md)/[`POINT HISTO
       "reference_number": "TUSBE2026092108001234",
       "amount": "50000.00",
       "status": "expired",
+      "source": "mobile",
+      "branch_name": "SUDO BREW - EVENT",
       "created_at": "2026-09-21T14:00:00+07:00"
     }
   ]
 }
 ```
 
-`paid_at` cuma keisi kalau `status == "paid"`. List kosong `[]` kalau gak ada percobaan top-up di rentang tanggal itu (bukan error).
+`source` — `pos`/`kiosk`/`mobile`, asal channel top-up itu (member yang sama bisa top-up dari channel manapun, history ini gak di-filter source). `branch_name` — nama branch ASAL transaksi (`member_topup_online.branch_id`, JOIN `master_branch`), murni tracking "top-up dari outlet mana" — **BUKAN** branch jurnal akuntansi (lihat [`CREATE.md`](CREATE.md#branch-jurnal-background-job-sama-seperti-kioskpos)); nullable kalau `branch_id`-nya kosong. `paid_at` cuma keisi kalau `status == "paid"`. List kosong `[]` kalau gak ada percobaan top-up di rentang tanggal itu (bukan error).
 
 ## Sumber data / implementasi
 
-- `sudomobile/backend/modules/topup/topup_service.go` — `GetTopupHistory()`.
+- `sudomobile/backend/modules/topup/topup_service.go` — `GetTopupHistory()` (`LEFT JOIN master_branch` buat `branch_name`).
 - `sudomobile/backend/modules/topup/topup_handler.go` — `History()`.
 - Route `/balance/topup/history` didaftarkan **sebelum** `/balance/topup/:reference_number/status` di `backend/router.go` — kalau kebalik, path ini bakal ketangkep sama route dinamis itu duluan (`reference_number="history"`).
 
