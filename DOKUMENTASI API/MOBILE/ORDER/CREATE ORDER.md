@@ -8,7 +8,9 @@ POST /api/order/create-order
 
 Kalau login (ada token valid), order tersimpan dengan `member_id` terisi (muncul di [`ORDER HISTORY.md`](ORDER%20HISTORY.md), dapat point/benefit member kalau ada). Kalau gak login, `mb_order.member_id` disimpan `NULL` (order tamu, sama seperti [QR Order](../../QR%20ORDER/KETENTUAN%20QR%20ORDER.md)) — **`order_number` itu sendiri jadi satu-satunya kunci akses** ke order ini (detail/cancel/payment-status gak lagi wajib login, siapa pun yang tau/pegang nomornya berhak akses, lihat [`ORDER DETAIL.md`](ORDER%20DETAIL.md)). Promo (`use_promo_ids`) **TETAP wajib login** — ditolak total kalau gak ada token (sama seperti QR Order), lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md).
 
-Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_method_id`/`customer_phone_number` — logic resolve harga/pajak/promo dipakai ULANG persis (fungsi `calculateOrder()` yang sama), jadi breakdown yang tampil pas preview keranjang GAK PERNAH beda sama yang beneran kesimpen/ke-charge.
+**Bug fix (2026-09-23)**: sejak digeser jadi publik (2026-09-22), grup route `/order/*` sempat KEHILANGAN middleware auth sama sekali (`middleware.Auth` dicopot karena sifatnya hard-reject, gak cocok buat publik, tapi gak ada pengganti yang dipasang) — akibatnya `middleware.MemberID(c)` SELALU balik `0` walau client kirim token valid, jadi `mb_order.member_id` SELALU `NULL` (bahkan pas login) dan guard promo SELALU nolak (`"promo tidak bisa dipakai tanpa login"` walau beneran login). Fix: middleware baru `middleware.OptionalAuth` (`backend/middleware/auth.go`) dipasang ke `orderPublicRouter` (`backend/router.go`) — resolve token KALAU ADA & valid (isi `member_id` ke locals sama kayak `Auth`), tapi gak nolak request kalau token kosong/invalid/expired (beda dari `Auth` yang hard-reject). Sekarang login beneran ngaruh: `member_id` valid → `mb_order.member_id` kesimpen (bukan `NULL`, bukan juga literal `0` — tetap lewat konversi pointer `*int64` yang udah ada di `insertOrder()`), promo bisa dipakai.
+
+Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_method_id`/`customer_phone_number`/`customer_name` — logic resolve harga/pajak/promo dipakai ULANG persis (fungsi `calculateOrder()` yang sama), jadi breakdown yang tampil pas preview keranjang GAK PERNAH beda sama yang beneran kesimpen/ke-charge.
 
 ## Request
 
@@ -18,6 +20,7 @@ Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_meth
   "visit_purpose_id": 7,
   "payment_method_id": 1,
   "customer_phone_number": "081234567890",
+  "customer_name": "Budi Santoso",
   "use_promo_ids": [23],
   "items": [
     {
@@ -38,6 +41,7 @@ Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_meth
 - `branch_id`/`visit_purpose_id`/`items`/`use_promo_ids` — sama persis [`CALCULATE.md`](CALCULATE.md), lihat dokumen itu buat detail lengkap (termasuk [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md)).
 - `payment_method_id` — **wajib**, harus lolos filter yang sama kayak [`GET PAYMENT METHOD LIST.md`](../MENU/GET%20PAYMENT%20METHOD%20LIST.md) (gateway-only, scoped branch+visit_purpose).
 - `customer_phone_number` — opsional.
+- `customer_name` — **BARU 2026-09-23, opsional**. Keisi ke `mb_order.order_name` (kolom sama yang dipakai [QR Order](../../QR%20ORDER/KETENTUAN%20QR%20ORDER.md), di situ wajib karena satu-satunya identitas tamu). Di member app ini cuma pelengkap — identitas utama tetap `member_id` dari token kalau login. Kosong/gak dikirim → `order_name` disimpan `NULL`. Ikut dibalikin di response [`ORDER DETAIL.md`](ORDER%20DETAIL.md) sebagai `customer_name`.
 
 ## Response
 
@@ -104,7 +108,8 @@ Semua validasi [`CALCULATE.md`](CALCULATE.md) berlaku (item/package/promo/dll) �
 
 ## Sumber data / implementasi
 
-- `sudomobile/backend/modules/order/order_create_handler.go` — `Create()`, `insertOrder()` (transaksi), `requestPaymentForOrder()`.
+- `sudomobile/backend/middleware/auth.go` — `OptionalAuth()` (BARU 2026-09-23, lihat "Bug fix" di atas), dipasang di `backend/router.go` ke `orderPublicRouter`.
+- `sudomobile/backend/modules/order/order_create_handler.go` — `Create()`, `insertOrder()` (transaksi, sekarang juga insert `order_name` dari `customer_name`), `requestPaymentForOrder()`.
 - `sudomobile/backend/modules/order/generators.go` — `generateReferenceNumber()` (pola bareng, dipakai `generateOrderNumber()` di sini DAN `generatePaymentNumber()` yang dipakai `finalizeSettledPayment()`, lihat [PAYMENT STATUS.md](PAYMENT%20STATUS.md#format-order_number-dan-payment_number-2026-08-26)), `generateULID()` (pakai `github.com/google/uuid`, BUKAN ULID asli kayak POS punya `Str::ulid()` — cuma butuh unik, sortability-nya emang gak dipakai logic manapun).
 - `sudomobile/backend/modules/order/payment_gateway_client.go` — HTTP client ke service `payment`, mirror kontrak `payment/backend/modules/paymentgateway/paymentgateway_dto.go`.
 - `sudomobile/backend/pricing/paymentmethod.go` — `ResolvePaymentMethod()`, filter SAMA PERSIS `GET PAYMENT METHOD LIST.md`.

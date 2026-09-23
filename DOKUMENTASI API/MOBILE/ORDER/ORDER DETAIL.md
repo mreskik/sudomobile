@@ -29,6 +29,7 @@ GET /api/order/:order_number
     "branch_name": "SUDO BREW - EVENT",
     "visit_purpose_id": 7,
     "visit_purpose_name": "asd",
+    "customer_name": null,
     "customer_phone_number": null,
     "flag_inclusive_tax": true,
     "sub_total": "125566.36",
@@ -80,6 +81,7 @@ GET /api/order/:order_number
 }
 ```
 
+- `customer_name` — **BARU 2026-09-23**. Diisi dari `mb_order.order_name`, keisi cuma kalau `customer_name` dikirim pas [`create-order`](CREATE%20ORDER.md) (opsional). `null` kalau gak diisi/order lama sebelum field ini ada.
 - `items[]`/`items[].packages[]` — snapshot dari `mb_order_detail`/`mb_order_detail_package` (angka FINAL yang beneran kesimpen pas order dibuat, bukan hasil hitung ulang) — beda dari [`CALCULATE.md`](CALCULATE.md) yang ngitung on-the-fly.
 - `payment.status` — **live-synced** tiap kali endpoint ini dipanggil (lewat `syncPaymentStatus()`) — kalau order `pending` dan gateway-nya ternyata udah `settlement`/`expired`, status di response DAN di `mb_order`/`mb_order_payment_request` langsung ikut ke-update (SIDE EFFECT yang disengaja — buka detail order otomatis nge-refresh status, sama kayak manggil [`payment-status`](PAYMENT%20STATUS.md) manual).
 - `payment.vendor_qr_string`/`url`/`expired_at` — **cuma keisi kalau `payment.status == "pending"`**. Order yang udah `paid`/`cancel`/`expired`/`failed` semuanya `null` (gak relevan lagi).

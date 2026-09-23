@@ -23,6 +23,11 @@ type createOrderRequest struct {
 	calculateRequest
 	PaymentMethodID     int64  `json:"payment_method_id"`
 	CustomerPhoneNumber string `json:"customer_phone_number"`
+	// CustomerName: OPSIONAL (2026-09-23) -- BEDA dari QR Order yang order_name-nya WAJIB
+	// (satu-satunya identitas tamu di situ, gak ada member_id). Di sini identitas utama
+	// tetap member_id (kalau login), customer_name cuma pelengkap nama yang keisi ke
+	// mb_order.order_name yang sama (kolom bareng sama QR Order, lihat insertQROrder()).
+	CustomerName string `json:"customer_name"`
 }
 
 type paymentInfo struct {
@@ -163,11 +168,11 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, service_charge, platform_fee, delivery_cost,
 				sub_total, total_discount, total_tax, total_billing,
-				flag_inclusive_tax, customer_phone_number, company_id, order_source
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'mobile')
+				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
 		`, orderNumber, body.BranchID, memberIDParam, body.VisitPurposeID,
 			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling,
-			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID,
+			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID, nullIfEmpty(body.CustomerName),
 		).Exec(ctx)
 		if err != nil {
 			return err

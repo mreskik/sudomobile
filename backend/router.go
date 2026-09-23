@@ -50,6 +50,9 @@ func RegisterRoutes(app *fiber.App) {
 	authRouter.Post("/check_number", authHandler.CheckNumber)
 	authRouter.Post("/request_otp", authHandler.RequestOTP)
 	authRouter.Post("/register", authHandler.Register)
+	// BARU (2026-09-23) -- versi Register TANPA OTP, lihat DOKUMENTASI API/MOBILE/AUTH/REGISTER
+	// NO OTP.md. Publik, TANPA guard tambahan (Turnstile/captcha direncanain, belum dipasang).
+	authRouter.Post("/register-no-otp", authHandler.RegisterNoOTP)
 	authRouter.Post("/login_otp", authHandler.LoginOTP)
 	authRouter.Post("/login_pin", authHandler.LoginPin)
 	authRouter.Post("/pin/reset", authHandler.ResetPin)
@@ -118,8 +121,14 @@ func RegisterRoutes(app *fiber.App) {
 	//
 	// Cuma GetHistory yang TETAP wajib login (grup terpisah di bawah) -- basis datanya
 	// member_id, gak ada cara nampilin "riwayat" tanpa identitas.
+	// middleware.OptionalAuth (BARU 2026-09-23, fix gap) -- Auth biasa GAK dipasang di sini
+	// (dia hard-reject kalau token kosong/invalid, gak cocok buat grup publik ini), tapi kalau
+	// TANPA middleware sama sekali, locals member_id gak PERNAH keisi walau token valid
+	// dikirim -- MemberID(c) selalu balik 0, mb_order.member_id gak pernah kesimpen, DAN guard
+	// promo di atas selalu nolak walau beneran login. OptionalAuth nyoba resolve token KALAU
+	// ADA, tapi gak nolak request kalau kosong/invalid (beda dari Auth).
 	orderHandler := order.NewHandler(config.DB)
-	orderPublicRouter := root.Group("/order")
+	orderPublicRouter := root.Group("/order", middleware.OptionalAuth(config.DB))
 	orderPublicRouter.Post("/calculate", orderHandler.Calculate)
 	// PUBLIK -- save order beneran (insert mb_order*) + trigger payment gateway (service
 	// `payment`, dev/payment/) dalam 1 call. Lihat DOKUMENTASI API/MOBILE/ORDER/CREATE ORDER.md.
@@ -131,17 +140,33 @@ func RegisterRoutes(app *fiber.App) {
 	// PUBLIK -- batalin order SEBELUM bayar (race-guard aware, lihat DOKUMENTASI
 	// API/MOBILE/ORDER/CANCEL ORDER.md).
 	orderPublicRouter.Post("/:order_number/cancel", orderHandler.CancelOrder)
-	// PUBLIK -- detail lengkap 1 order (breakdown item + QR ulang kalau masih pending).
-	// Lihat DOKUMENTASI API/MOBILE/ORDER/ORDER DETAIL.md.
-	orderPublicRouter.Get("/:order_number", orderHandler.GetDetail)
 
 	// PROTECTED -- riwayat order milik member yang login, satu-satunya endpoint /order yang
 	// TETAP wajib Authorization. Grup TERPISAH dari orderPublicRouter di atas (bukan sub-route
 	// grup yang sama) -- middleware.Auth scoped ke grup Go ini doang, gak bocor ke prefix /order
 	// lain (beda dari middleware.AppSetting yang dipasang di app.Group("/api") level root app).
 	// Lihat DOKUMENTASI API/MOBILE/ORDER/ORDER HISTORY.md.
+	//
+	// BUG FIX (2026-09-23): route ini WAJIB didaftarkan SEBELUM "/:order_number" (GetDetail) di
+	// bawah -- keduanya sama-sama match GET /api/order/history (order_number="history" jadi
+	// kandidat valid buat pola dinamis itu). Fiber v3 mencocokkan berdasarkan URUTAN PENDAFTARAN
+	// GLOBAL di app (BUKAN per-grup Go) -- kalau kebalik (GetDetail lebih dulu), semua request ke
+	// /order/history KETANGKEP GetDetail duluan (query WHERE order_number='history', gak pernah
+	// ketemu) -- GetHistory gak PERNAH kepanggil sama sekali, ketauan dari response asli
+	// {"code":100,"message":"order tidak ditemukan"} (pesan itu cuma ada di GetDetail, GetHistory
+	// gak pernah punya pesan itu). Sama pola kayak yang udah diwaspadai di komentar
+	// "/balance/topup/history" vs "/:reference_number/status" di bawah -- di sini kelewat karena
+	// 2 route-nya didaftarkan di 2 grup Go terpisah (orderPublicRouter vs orderProtectedRouter),
+	// bukan di 1 blok kode yang sama, jadi gak kena ke pola yang udah diwaspadai itu.
 	orderProtectedRouter := root.Group("/order", middleware.Auth(config.DB))
 	orderProtectedRouter.Get("/history", orderHandler.GetHistory)
+
+	// PUBLIK -- detail lengkap 1 order (breakdown item + QR ulang kalau masih pending). Lihat
+	// DOKUMENTASI API/MOBILE/ORDER/ORDER DETAIL.md. SENGAJA didaftarkan PALING TERAKHIR di antara
+	// route /order (setelah /history di atas) -- ini route paling generik ("/:order_number" match
+	// APA PUN 1 segment, termasuk "history"), jadi harus kalah prioritas dari semua route statis
+	// /order lain.
+	orderPublicRouter.Get("/:order_number", orderHandler.GetDetail)
 
 	// PROTECTED -- profil akun customer yang lagi login.
 	accountHandler := account.NewHandler(config.DB)

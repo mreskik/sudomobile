@@ -8,6 +8,8 @@ POST /api/order/calculate
 
 `use_promo_ids` **TETAP wajib login** — ditolak total kalau gak ada token (validasi promo butuh identitas member: `member_type_id` buat filter `master_promo_type_members`, saldo poin buat `min_point_amount`). `member_id` diambil dari session token kalau ada (opsional), BUKAN dari body.
 
+**Bug fix (2026-09-23)**: sama gap-nya kayak [`CREATE ORDER.md`](CREATE%20ORDER.md#bug-fix-2026-09-23) — grup route `/order/*` sempat gak punya middleware auth apa pun sejak digeser publik (2026-09-22), jadi token yang dikirim gak pernah ke-resolve (`member_id` selalu `0`) dan `use_promo_ids` SELALU ditolak `"promo tidak bisa dipakai tanpa login"` walau client beneran login. Fix: `middleware.OptionalAuth` dipasang ke `orderPublicRouter`, sekarang token valid beneran resolve `member_id`.
+
 ## Request
 
 ```json
@@ -121,7 +123,7 @@ Data real `branch_id=51`/`visit_purpose_id=7` (`menu_template_id=9`), item `109`
 - `dpp` package = `13636.36` (= `15000/1.1`), `tax_amount` = `1363.64`.
 - `sub_total` = `251132.72` (`2×111930 + 2×13636.36`), `total_tax` = `25113.28`, `total_billing` = `276246.00` — dicek manual, cocok.
 
-Edge case dites: `menu_id` gak ketemu → error yang sesuai. `qty` selection `25` (di luar `max_qty=21`) → ditolak. `branch_id` kosong → ditolak. `menu_package_id` gak ada di grup → ditolak. Request tanpa `Authorization` → `"token tidak ditemukan"` (endpoint protected).
+Edge case dites: `menu_id` gak ketemu → error yang sesuai. `qty` selection `25` (di luar `max_qty=21`) → ditolak. `branch_id` kosong → ditolak. `menu_package_id` gak ada di grup → ditolak. Request tanpa `Authorization` → `"token tidak ditemukan"` (**catatan: hasil test ini dari 2026-08-24, pas endpoint masih PROTECTED** — sekarang publik, request tanpa `Authorization` tetap diterima sebagai guest, cuma `use_promo_ids` yang ditolak kalau diisi tanpa login, lihat "Bug fix" di atas).
 
 **Promo** (data test dibuat temporer, dihapus lagi setelah verifikasi — `master_promo`/`master_promo_apply_to`/`master_promo_items`/`master_promo_categories`/`master_pricelist_detail`/`mb_order`/`mb_order_detail`, termasuk revert kolom `master_item.item_category` yang sempat diubah sementara buat simulasi 2 item 1 category):
 

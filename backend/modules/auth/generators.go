@@ -63,6 +63,14 @@ func generateMemberCode(ctx context.Context, db *bun.DB) (string, error) {
 
 var validPin = regexp.MustCompile(`^[0-9]{6}$`)
 
+// validPhoneNumber: semua digit, minimal 10 karakter -- dipakai RegisterNoOTP (2026-09-23), yang
+// TANPA OTP gak punya cara lain buat "membuktikan" nomor itu asli/bisa dihubungi, jadi minimal
+// format-nya divalidasi dulu (angka semua, gak asal string apapun). Register (pakai OTP) SENGAJA
+// TIDAK dikasih validasi ini -- endpoint itu udah punya bukti kepemilikan nomor lewat OTP-nya
+// sendiri, gak butuh validasi format tambahan (konsisten sama endpoint lain yang "percaya" format
+// dari FE, lihat catatan di masing-masing dokumen).
+var validPhoneNumber = regexp.MustCompile(`^[0-9]{10,}$`)
+
 // hashPin: bcrypt, cost default -- PIN gak pernah disimpen plaintext. Divalidasi dulu 6 digit
 // angka SEBELUM di-hash (disepakati 6 digit, sama pola app finansial kayak OVO/GoPay).
 func hashPin(pin string) (string, error) {

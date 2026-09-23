@@ -27,10 +27,14 @@ type orderDetailHeader struct {
 	TotalBilling        string  `bun:"total_billing"`
 	FlagInclusiveTax    bool    `bun:"flag_inclusive_tax"`
 	CustomerPhoneNumber *string `bun:"customer_phone_number"`
-	BranchID            int64   `bun:"branch_id"`
-	BranchName          *string `bun:"branch_name"`
-	VisitPurposeID      int64   `bun:"visit_purpose_id"`
-	VisitPurposeName    *string `bun:"visit_purpose_name"`
+	// OrderName: BARU 2026-09-23 -- keisi kalau Create Order dikirim customer_name (opsional,
+	// lihat createOrderRequest.CustomerName di order_create_handler.go). Kolom sama yang dipakai
+	// QR Order (di situ wajib), di sini opsional karena identitas utama tetap member_id.
+	OrderName        *string `bun:"order_name"`
+	BranchID         int64   `bun:"branch_id"`
+	BranchName       *string `bun:"branch_name"`
+	VisitPurposeID   int64   `bun:"visit_purpose_id"`
+	VisitPurposeName *string `bun:"visit_purpose_name"`
 }
 
 type orderDetailPackageItem struct {
@@ -88,6 +92,7 @@ type orderDetailResult struct {
 	BranchName          *string            `json:"branch_name"`
 	VisitPurposeID      int64              `json:"visit_purpose_id"`
 	VisitPurposeName    *string            `json:"visit_purpose_name"`
+	CustomerName        *string            `json:"customer_name"`
 	CustomerPhoneNumber *string            `json:"customer_phone_number"`
 	FlagInclusiveTax    bool               `json:"flag_inclusive_tax"`
 	SubTotal            string             `json:"sub_total"`
@@ -116,7 +121,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 	var header orderDetailHeader
 	err := h.db.NewRaw(`
 		SELECT mo.member_id, mo.order_number, mo.status, mo.created_at, mo.sub_total, mo.total_discount,
-			mo.total_tax, mo.total_billing, mo.flag_inclusive_tax, mo.customer_phone_number,
+			mo.total_tax, mo.total_billing, mo.flag_inclusive_tax, mo.customer_phone_number, mo.order_name,
 			mo.branch_id, mb.name AS branch_name, mo.visit_purpose_id, mvp.name AS visit_purpose_name
 		FROM mb_order mo
 		LEFT JOIN master_branch mb ON mb.id = mo.branch_id
@@ -143,6 +148,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		BranchName:          header.BranchName,
 		VisitPurposeID:      header.VisitPurposeID,
 		VisitPurposeName:    header.VisitPurposeName,
+		CustomerName:        header.OrderName,
 		CustomerPhoneNumber: header.CustomerPhoneNumber,
 		FlagInclusiveTax:    header.FlagInclusiveTax,
 		SubTotal:            header.SubTotal,

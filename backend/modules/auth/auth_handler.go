@@ -25,6 +25,7 @@ type Handler interface {
 	CheckNumber(c fiber.Ctx) error
 	RequestOTP(c fiber.Ctx) error
 	Register(c fiber.Ctx) error
+	RegisterNoOTP(c fiber.Ctx) error
 	LoginOTP(c fiber.Ctx) error
 	CreatePin(c fiber.Ctx) error
 	ChangePin(c fiber.Ctx) error
@@ -332,6 +333,138 @@ func (h *handler) Register(c fiber.Ctx) error {
 			Name:        member.Name,
 			PhoneNumber: member.PhoneNumber,
 			HasPin:      false, // member baru daftar -- mustahil udah punya PIN, gak perlu query
+		},
+	}))
+}
+
+type registerNoOTPRequest struct {
+	PhoneNumber string `json:"phone_number"`
+	Name        string `json:"name"`
+	Pin         string `json:"pin"`
+}
+
+// RegisterNoOTP: BARU (2026-09-23) -- versi Register TANPA verifikasi OTP, endpoint TERPISAH
+// (bukan bikin field otp opsional di Register() yang udah ada -- itu tetep wajib OTP apa
+// adanya, gak disentuh sama sekali). Dipakai buat kebutuhan produk yang butuh onboarding tanpa
+// nunggu OTP -- KONSEKUENSINYA: gak ada bukti kepemilikan nomor sama sekali, siapa pun bisa
+// daftar pakai nomor siapa aja. Publik penuh, TANPA guard tambahan (disepakati eksplisit) --
+// TODO ke depan: pasang Cloudflare Turnstile (captcha) di endpoint ini biar minimal ada barier
+// anti-bot/anti-spam, belum diimplementasi sekarang.
+//
+// Beda dari Register(): TANPA field/validasi otp, TANPA findValidOTP()/tandain verified_at
+// (gak ada OTP yang perlu ditandai -- jalur ini emang gak pernah nyentuh mobile_member_otp sama
+// sekali). SEBAGAI GANTINYA, phone_number divalidasi FORMAT-nya (validPhoneNumber -- digit semua,
+// minimal 10 karakter) -- karena gak ada OTP yang otomatis "membuktikan" nomor itu valid, minimal
+// format mentahnya dicek dulu. Register() (pakai OTP) SENGAJA TIDAK dikasih validasi format ini,
+// biar gak ada 2 aturan beda buat "phone_number yang sama" antar 2 endpoint -- lihat komentar di
+// validPhoneNumber (generators.go).
+//
+// pin WAJIB diisi (2026-09-23, keputusan sesi) -- BEDA dari Register (OTP) yang gak ada field
+// ini sama sekali (has_pin selalu false, PIN diset belakangan lewat CreatePin). Di sini PIN
+// langsung diset SEKALIAN pas register -- alasan: endpoint ini gak ada OTP buat verifikasi ulang
+// identitas pas mau set PIN nanti, jadi mumpung member baru masih megang token session yang
+// fresh dari Register, PIN-nya langsung diminta di sini sekalian. Insert ke mobile_member_pin
+// dalam TRANSAKSI YANG SAMA (bukan manggil CreatePin() -- itu baca member_id dari c.Locals via
+// middleware Auth, yang belum jalan di titik ini karena belum ada token pas request masuk).
+//
+// Selebihnya SAMA PERSIS Register(): re-cek belum terdaftar, generate code MOB+sequence (fungsi
+// generateMemberCode() yang SAMA, sequence nyambung 1 hitungan sama jalur Register OTP), 1
+// transaksi (insert master_member -> insert mobile_member_session -> insert mobile_member_pin,
+// MINUS langkah tandain OTP), response bentuk sessionResponse dengan has_pin: true (beda dari
+// Register yang selalu false).
+func (h *handler) RegisterNoOTP(c fiber.Ctx) error {
+	res := helpers.NewResponse()
+
+	var req registerNoOTPRequest
+	if err := c.Bind().Body(&req); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+	}
+	if req.PhoneNumber == "" {
+		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+	}
+	if req.Name == "" {
+		return c.JSON(res.SetCode(100).SetMessage("name wajib diisi"))
+	}
+	if !validPhoneNumber.MatchString(req.PhoneNumber) {
+		return c.JSON(res.SetCode(100).SetMessage("phone_number tidak valid"))
+	}
+	if req.Pin == "" {
+		return c.JSON(res.SetCode(100).SetMessage("pin wajib diisi"))
+	}
+	pinHash, err := hashPin(req.Pin)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("pin harus 6 digit angka"))
+	}
+
+	var existingCount int
+	if err := h.db.NewRaw(
+		`SELECT COUNT(*) FROM master_member WHERE phone_number = ?`, req.PhoneNumber,
+	).Scan(c.Context(), &existingCount); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+	}
+	if existingCount > 0 {
+		return c.JSON(res.SetCode(100).SetMessage("nomor sudah terdaftar"))
+	}
+
+	code, err := generateMemberCode(c.Context(), h.db)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal generate member code"))
+	}
+
+	token, err := generateSessionToken()
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+	}
+
+	tx, err := h.db.BeginTx(c.Context(), nil)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+	}
+	gagal := true
+	defer func() {
+		if gagal {
+			tx.Rollback()
+		}
+	}()
+
+	member := MasterMember{
+		Code:         code,
+		Name:         req.Name,
+		PhoneNumber:  req.PhoneNumber,
+		IsActive:     true,
+		MemberTypeID: MemberTypeCustomerID,
+	}
+	if _, err := tx.NewInsert().Model(&member).Exec(c.Context()); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+	}
+
+	session := MobileMemberSession{
+		MemberID:  member.ID,
+		Token:     token,
+		ExpiresAt: time.Now().Add(sessionExpiry),
+	}
+	if _, err := tx.NewInsert().Model(&session).Exec(c.Context()); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+	}
+
+	pin := MobileMemberPin{MemberID: member.ID, PinHash: pinHash}
+	if _, err := tx.NewInsert().Model(&pin).Exec(c.Context()); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+	}
+
+	gagal = false
+	if err := tx.Commit(); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+	}
+
+	return c.JSON(res.Success().SetData(sessionResponse{
+		Token: token,
+		Member: memberResponse{
+			ID:          member.ID,
+			Code:        member.Code,
+			Name:        member.Name,
+			PhoneNumber: member.PhoneNumber,
+			HasPin:      true, // PIN langsung diset sekalian pas register-no-otp, WAJIB diisi
 		},
 	}))
 }

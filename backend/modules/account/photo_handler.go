@@ -45,7 +45,13 @@ type updatePhotoResponse struct {
 //
 // Barrier max 3x ganti PER HARI (bukan per prosesnya doang) -- dicek dari
 // mobile_member_photo_change_log, COUNT baris created_at >= hari ini. Sengaja dihitung dari
-// HARI KALENDER (bukan rolling 24 jam), lebih predictable buat user ("besok reset").
+// HARI KALENDER (bukan rolling 24 jam), lebih predictable buat user ("besok reset"). Tabel ini
+// DIPAKAI BARENG sudobarber (2026-09-23, keputusan sesi) -- limit-nya GABUNGAN lintas app,
+// bukan kepisah per app (member_id yang direferensikan itu 1 identitas yang sama).
+//
+// File lama (2026-09-23) DIHAPUS dari disk SETELAH transaksi DB commit (bukan sebelum/di dalam)
+// -- kalau transaksi gagal, file lama tetap utuh, gak ada risiko DB nunjuk ke file yang udah
+// ilang. Kegagalan hapus file lama di-log doang, BUKAN bikin request ini gagal.
 func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 	memberID := middleware.MemberID(c)
@@ -65,6 +71,13 @@ func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 	fh, err := c.FormFile("file")
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("file wajib diisi"))
+	}
+
+	// path lama diambil DULU, sebelum disentuh -- dipakai buat hapus file fisiknya setelah
+	// transaksi commit.
+	var oldPath *string
+	if err := h.db.NewRaw(`SELECT profile_photo_src FROM master_member WHERE id = ?`, memberID).Scan(c.Context(), &oldPath); err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data member"))
 	}
 
 	path, err := savePhoto(c, fh)
@@ -99,7 +112,29 @@ func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("gagal simpan foto"))
 	}
 
+	deleteOldPhoto(oldPath)
+
 	return c.JSON(res.Success().SetData(updatePhotoResponse{ProfilePhotoSrc: path}))
+}
+
+// deleteOldPhoto: hapus file lama dari disk SETELAH commit -- best-effort, kegagalan (file udah
+// gak ada, permission, dst) cuma di-log, gak bikin request gagal. oldPath nil/kosong -> no-op
+// (member belum pernah punya foto sebelumnya).
+func deleteOldPhoto(oldPath *string) {
+	if oldPath == nil || *oldPath == "" {
+		return
+	}
+	const prefix = "/storage/uploads/images/"
+	if !strings.HasPrefix(*oldPath, prefix) {
+		// path lama gak sesuai konvensi yang dipakai sekarang -- jangan coba hapus apa pun
+		// yang gak yakin lokasinya.
+		return
+	}
+	filename := strings.TrimPrefix(*oldPath, prefix)
+	fullPath := filepath.Join(photoStorageRoot(), filename)
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		fmt.Println("[WARN] gagal hapus foto profil lama:", fullPath, err)
+	}
 }
 
 func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {

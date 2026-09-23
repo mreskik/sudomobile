@@ -34,7 +34,7 @@ Sebagian endpoint (ditandai **Protected** di masing-masing dokumentasi) butuh he
 Authorization: Bearer <session_token>
 ```
 
-`<session_token>` didapat dari salah satu endpoint login: [`register`](AUTH/REGISTER.md), [`login_otp`](AUTH/LOGIN%20OTP.md), [`login_pin`](AUTH/LOGIN%20PIN.md), atau [`pin/reset`](AUTH/PIN%20RESET.md) — semuanya balikin `token` di response sukses. Token ini **scoped ke 1 customer** (`master_member`), disimpen di `mobile_member_session`, umur **30 hari**.
+`<session_token>` didapat dari salah satu endpoint login: [`register`](AUTH/REGISTER.md), [`register-no-otp`](AUTH/REGISTER%20NO%20OTP.md) (2026-09-23, TANPA verifikasi OTP — lihat peringatan keamanan di dokumennya), [`login_otp`](AUTH/LOGIN%20OTP.md), [`login_pin`](AUTH/LOGIN%20PIN.md), atau [`pin/reset`](AUTH/PIN%20RESET.md) — semuanya balikin `token` di response sukses. Token ini **scoped ke 1 customer** (`master_member`), disimpen di `mobile_member_session`, umur **30 hari**.
 
 Server resolve `member_id` dari token ini (dicek exists & belum expired) — **bukan** dari body/param request. Jadi endpoint Protected apapun otomatis cuma bisa akses/ubah data milik akun yang lagi login, gak ada cara akses data member lain lewat endpoint yang sama.
 
