@@ -51,6 +51,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
                 "tax_type": "pb1",
                 "tax_id": 12,
                 "tax_rate": "10.00",
+                "notes_menu": ["Tambah level pedas 1 tingkat", "Sugar free"],
                 "package_list": [
                   {
                     "package_id": 18,
@@ -68,7 +69,8 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
                         "tax_type": "pb1",
                         "tax_id": 12,
                         "tax_rate": "10.00",
-                        "default_item": false
+                        "default_item": false,
+                        "notes_menu": []
                       }
                     ]
                   }
@@ -100,6 +102,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
 - `tax_rate` — lookup `master_tax.rate` dari `tax_id` di atas, `null` kalau `tax_id`-nya `null`.
 - `price` — **masih harga mentah** dari `master_pricelist_detail.price`, **belum** dihitung inclusive/exclusive-nya (itu tanggung jawab sisi konsumen/cart nanti, pakai `flag_inclusive_tax`+`tax_rate` di atas -- endpoint ini cuma nyediain bahan mentahnya, gak ngitung `dpp`/`net_dpp`/`total`).
 - `package_list` — array **kosong `[]`** kalau item-nya emang gak punya package (mayoritas item). Item yang punya package (customer wajib/boleh milih sub-item dari 1+ grup, misal grup "VARIAN" pilih 1 dari beberapa varian rasa) bakal keisi.
+- `notes_menu` (2026-09-25) — array string catatan siap-pilih (mis. "Extra Pedas", "Sugar free") dari `master_notes_menu_detail.full_notes` yang `master_notes_menu` induknya match ke `category_id`/`subcategory_id` item ini (lihat "Update (2026-09-25)" di bawah). **SELALU `full_notes`** (bukan `short_notes`) — beda dari versi POS yang punya 2 varian tergantung channel (`short_notes` buat kasir, `full_notes` buat kiosk); di sini cuma ada 1 kebutuhan (informasi ditampilin ke customer). Array kosong `[]` kalau gak ada notes menu yang match (bukan `null`).
 
 **Level package group** (`package_list[]`):
 
@@ -113,6 +116,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
 - `price` — **BUKAN** dari `master_pricelist_detail` kayak item utama, basisnya `master_item_package_detail.price` (harga/surcharge KHUSUS package, konvensi ERP: `0` = "termasuk gratis" kalau dipilih, bukan berarti gagal/error). **Update (2026-08-26)**: sekarang bisa BEDA per `menu_template_id` — kalau `master_item_package_detail.flag_all_menu_template = false` **dan** ada baris `master_item_package_detail_menu_template` yang cocok buat `menu_template_id` visit purpose ini, harga override itu yang dipakai; kalau `flag_all_menu_template = true` **atau** gak ketemu override-nya, tetap fallback ke `master_item_package_detail.price` (harga di atas). Resolusinya di SQL (`FetchPackages()`, `pricing.go`) — `CASE WHEN flag_all_menu_template THEN price ELSE COALESCE(override.price, price) END`, satu query, bukan lookup terpisah.
 - `default_item` — dari `master_item_package_detail.default_item` (2026-08-26), nandain sub-item mana yang "pre-selected" secara default pas customer buka package group ini. Passthrough apa adanya, gak ada logic tambahan di sini — konsumen (FE/app mobile) yang mutusin mau dipakein buat pre-check atau enggak.
 - `tax_type`/`tax_id`/`tax_rate` — diresolve **PERSIS** pakai fungsi yang sama kayak item utama (`resolveItemTax()`), dari `use_tax` milik sub-item itu SENDIRI (bukan diwarisin dari item utama/parent) — kebetulan di contoh di atas sama-sama `pb1` karena datanya emang gitu, tapi bisa beda kalau sub-item-nya punya `use_tax` beda dari parent.
+- `notes_menu` (2026-09-25) — sama field & rule kayak item utama, TAPI matching-nya pakai `category_id`/`subcategory_id` **milik sub-item itu sendiri** (`master_item.item_category`/`item_subcategory` sub-item, bukan diwarisin dari item paket induknya) — 1 package bisa berisi sub-item lintas kategori (mis. minuman di dalam package makanan).
 
 Kondisi lain (kosong, gak ketemu, error validasi param) sama kayak sebelumnya — lihat bagian bawah dokumen ini.
 
@@ -177,6 +181,23 @@ ORDER BY mip.item_id ASC, mipg.id ASC, mipd.id ASC
 
 Hasilnya map `item_id → []packageGroup` (`fetchPackages()`), dipasang ke item yang cocok pas `buildMenuTree()` ngerakit tree. Item yang gak ada entrinya di map ini dikasih `package_list: []` (bukan `null`).
 
+**5. Notes menu — 1 query buat SEMUA notes menu branch ini sekaligus (bukan per-item):**
+```sql
+SELECT
+  mnm.applies_to,
+  mnc.category_id,
+  mns.sub_category_id,
+  mnd.full_notes
+FROM master_notes_menu mnm
+LEFT JOIN master_notes_menu_branches mnb ON mnb.master_notes_menu_id = mnm.id
+LEFT JOIN master_notes_menu_categories mnc ON mnc.master_notes_menu_id = mnm.id
+LEFT JOIN master_notes_menu_subcategories mns ON mns.master_notes_menu_id = mnm.id
+LEFT JOIN master_notes_menu_detail mnd ON mnd.master_notes_menu_id = mnm.id
+WHERE mnm.flag_active = true AND (mnm.flag_all_branch = true OR mnb.branch_id = ?)
+```
+
+Dicocokkan in-memory ke tiap item/sub-item (`pricing.ResolveNotesMenu()`) — `applies_to = 'all_category'` selalu ikut, `'category'`/`'sub_category'` match `category_id`/`subcategory_id` item itu. Lihat "Update (2026-09-25)" di bawah.
+
 ## Catatan penting
 
 - **Resolusi pajak per item DIREPLIKA PERSIS dari `MenuServices.php` (POS)**, bukan diinterpretasi ulang dari nol -- ini hasil riset kode dulu, bukan tebakan:
@@ -188,6 +209,23 @@ Hasilnya map `item_id → []packageGroup` (`fetchPackages()`), dipasang ke item 
 - **Item tanpa kategori GAK muncul sama sekali** — `master_item_category` di-`JOIN` (bukan `LEFT JOIN`), karena tiap item emang wajib punya category.
 - **Package cuma 2 level, gak recursive** — sub-item package (`menu_package_list[]`) gak pernah punya package-nya sendiri di response ini, walau secara skema (FK) sebenernya gak ada yang ngelarang 1 item punya package DAN sekaligus jadi sub-item package lain. Riset kode (sudocore2/APIANDORDER/POS) gak nemu satupun tempat yang nge-resolve level ke-2, jadi endpoint ini pun sengaja berhenti di 1 level (item utama → package group → sub-item), konsisten sama semua kode lain yang udah ada.
 - **`master_item_category.tax_type` juga gak relevan di sini** (sama kayak item utama) — sub-item package pajaknya dari `master_item.use_tax` miliknya sendiri, bukan diwarisin dari mana pun.
+
+## Update (2026-09-25)
+
+`notes_menu` ditambahin di tiap `items[]` (menu utama) **dan** di tiap `menu_package_list[]` (sub-item package) — port dari POS (`MenuServices::GetMasterMenuList()`, lihat `POS/posv1-laravel/DOKUMENTASI API/KIOSK/KIOSK BRANCH VISIT PURPOSE DETAIL.md` "Update 2026-09-24") yang udah lebih dulu embed field serupa di menu-list-nya. Sama alasannya: seluruh pohon menu emang udah ditarik sekali di awal, gak ada gunanya bikin endpoint terpisah on-demand per item.
+
+**Implementasi** (`backend/pricing/pricing.go`):
+- `pricing.FetchNotesMenu(ctx, db, branchID)` — tarik SEMUA baris notes menu (JOIN branches/categories/subcategories/detail) **sekali** per request, bukan per item — hindari N+1 pas loop pohon menu.
+- `pricing.ResolveNotesMenu(rows, categoryID, subCategoryID)` — matching in-memory per item/sub-item, balikin `full_notes` unik yang match (dedup per baris, key map).
+- Dipanggil di `resolveVisitPurposeDetail()` (`modules/visitpurpose/visitpurpose_handler.go`) — hasil `[]pricing.NotesMenuRow` diteruskan ke `buildMenuTree()` (isi `menuItem.NotesMenu`) **dan** `pricing.FetchPackages()` (isi `PackageSubItem.NotesMenu`, matching pakai kategori sub-item sendiri).
+
+**BEDA PENTING dari versi POS**: `master_notes_menu` itu **branch-scoped** (`flag_all_branch` + `master_notes_menu_branches`), sementara `mr_notes_menu` di POS TIDAK — karena POS sync-nya udah pre-filter per branch di server (`APIANDORDER`), 1 install POS = 1 branch. `sudomobile` baca **langsung** ke ERP dan ngelayanin banyak branch dalam 1 proses, jadi filter `branch_id` **wajib** ada di query `FetchNotesMenu()` — kalau di-skip, notes menu branch lain bisa bocor ke response branch yang salah. `flag_active = true` juga difilter eksplisit (POS gak perlu, sync-nya cuma narik notes menu yang aktif).
+
+**Versi QR Order otomatis kebawa** — `qrVisitPurposeDetail.Categories` (`visitpurpose_qr_handler.go`) tipe datanya `[]menuCategory`, sama struct yang dipakai member app, isinya 100% hasil `resolveVisitPurposeDetail()` yang sama. Gak ada perubahan kode tambahan yang perlu dilakuin khusus buat QR Order — `notes_menu` otomatis muncul begitu member app-nya jadi. Lihat [`QR ORDER/ORDER/03 GET VISIT PURPOSE DETAIL.md`](../../../QR%20ORDER/ORDER/03%20GET%20VISIT%20PURPOSE%20DETAIL.md).
+
+Dipakai bareng `order/calculate` (`order_handler.go`, `pricing.FetchPackages()`) — endpoint itu **sengaja** pass `nil` buat parameter `notesMenu` (bukan fetch beneran) karena `order/calculate` bukan endpoint menu-browsing, `PackageSubItem.NotesMenu` gak relevan ditampilin/dipakai di response kalkulasi harga. `pricing.ResolveNotesMenu()` nil-safe, `nil` balikin `[]` doang, gak crash.
+
+Tervalidasi: `go build ./...` dan `go vet ./...` bersih di seluruh project (termasuk `modules/order` yang ikut kena perubahan signature `FetchPackages()`). Belum tervalidasi live via request HTTP (server dev belum dijalankan pas perubahan ini dibuat) — disarankan sync manual/tes 1 branch yang punya data `master_notes_menu` real sebelum dianggap final.
 
 ## Status
 

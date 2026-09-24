@@ -109,6 +109,7 @@ type menuItem struct {
 	TaxID           *int64                 `json:"tax_id"`
 	TaxRate         *string                `json:"tax_rate"`
 	PackageList     []pricing.PackageGroup `json:"package_list"`
+	NotesMenu       []string               `json:"notes_menu"`
 }
 
 type menuSubcategory struct {
@@ -237,7 +238,17 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 		return nil, "", err
 	}
 
-	packages, err := pricing.FetchPackages(ctx, db, itemIDsOf(rows), cfg, taxRates)
+	// notes_menu (2026-09-25, port dari POS -- lihat KIOSK BRANCH VISIT PURPOSE DETAIL.md POS
+	// "Update 2026-09-24"): ditarik SEKALI di sini (branch-scoped, lihat komentar
+	// pricing.FetchNotesMenu()), dicocokkan in-memory per item/sub-item lewat
+	// pricing.ResolveNotesMenu() -- selalu full_notes (sudomobile/QR Order gak punya konsep
+	// short_notes quick-pick kayak POS).
+	notesMenu, err := pricing.FetchNotesMenu(ctx, db, int64(branchID))
+	if err != nil {
+		return nil, "", err
+	}
+
+	packages, err := pricing.FetchPackages(ctx, db, itemIDsOf(rows), cfg, taxRates, notesMenu)
 	if err != nil {
 		return nil, "", err
 	}
@@ -253,7 +264,7 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 		Pb1:               cfg.Pb1,
 		Pb1Rate:           taxRates.Rate(cfg.Pb1),
 		OrderFee:          cfg.OrderFee,
-		Categories:        buildMenuTree(rows, cfg, taxRates, packages),
+		Categories:        buildMenuTree(rows, cfg, taxRates, packages, notesMenu),
 	}, "", nil
 }
 
@@ -275,7 +286,7 @@ func itemIDsOf(rows []menuItemRow) []int64 {
 // buildMenuTree: baris flat (1 baris = 1 item, kebawa nama category/subcategory-nya) dirakit
 // jadi tree bersarang. Query udah ORDER BY category lalu subcategory lalu item name, jadi
 // cukup "pecah begitu ID-nya ganti" -- gak perlu sort ulang di Go.
-func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pricing.TaxRateMap, packages map[int64][]pricing.PackageGroup) []menuCategory {
+func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pricing.TaxRateMap, packages map[int64][]pricing.PackageGroup, notesMenu []pricing.NotesMenuRow) []menuCategory {
 	categories := []menuCategory{}
 
 	for _, row := range rows {
@@ -298,6 +309,7 @@ func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pr
 			TaxID:           taxID,
 			TaxRate:         taxRate,
 			PackageList:     packageList,
+			NotesMenu:       pricing.ResolveNotesMenu(notesMenu, row.CategoryID, row.SubcategoryID),
 		}
 
 		catIdx := len(categories) - 1

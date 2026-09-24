@@ -220,7 +220,10 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		}
 	}
 
-	packages, err := pricing.FetchPackages(ctx, db, masterItemIDs, cfg, taxRates)
+	// notesMenu nil (2026-09-25): endpoint ini order/calculate, bukan menu-browsing -- PackageSubItem.NotesMenu
+	// gak dipakai/ditampilin di response calculate, jadi gak perlu FetchNotesMenu() ekstra di sini
+	// (nil aman, ResolveNotesMenu() nil-safe, balikin [] doang -- lihat pricing.FetchNotesMenu()).
+	packages, err := pricing.FetchPackages(ctx, db, masterItemIDs, cfg, taxRates, nil)
 	if err != nil {
 		return nil, "", err
 	}

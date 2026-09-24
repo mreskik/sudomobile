@@ -71,6 +71,7 @@ di bawahnya gak dijalanin.
                 "tax_type": "pb1",
                 "tax_id": 12,
                 "tax_rate": "10.00",
+                "notes_menu": ["Tambah level pedas 1 tingkat", "Sugar free"],
                 "package_list": [
                   {
                     "package_id": 18,
@@ -88,7 +89,8 @@ di bawahnya gak dijalanin.
                         "tax_type": "pb1",
                         "tax_id": 12,
                         "tax_rate": "10.00",
-                        "default_item": false
+                        "default_item": false,
+                        "notes_menu": []
                       }
                     ]
                   }
@@ -113,10 +115,15 @@ adanya dari data).
 
 **Sisanya sama persis** versi member app — `menu_template_id`, `flag_inclusive_tax`, pajak level
 visit purpose (`service_charge`/`vat`/`pb1` + `_rate`), `order_fee`, dan seluruh isi `categories[]`
-(item, `price` mentah, `tax_type`/`tax_id`/`tax_rate`, `package_list[]`/`menu_package_list[]`).
-Penjelasan tiap field, aturan `qr_order = true`, resolusi pajak dari `master_item.use_tax`, dst —
+(item, `price` mentah, `tax_type`/`tax_id`/`tax_rate`, `notes_menu[]` (2026-09-25, `full_notes`),
+`package_list[]`/`menu_package_list[]`). Penjelasan tiap field, aturan `qr_order = true`, resolusi
+pajak dari `master_item.use_tax`, dst —
 **lihat [`../MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`](../../MOBILE/MENU/GET%20VISIT%20PURPOSE%20DETAIL.md)**,
 sengaja gak diulang di sini biar gak ada 2 sumber kebenaran.
+
+`notes_menu` otomatis kebawa **tanpa perubahan kode tambahan khusus QR Order** — `Categories`
+di response ini tipe datanya sama persis (`[]menuCategory`) dengan member app, isinya 100% hasil
+`resolveVisitPurposeDetail()` yang direuse (lihat "Catatan implementasi" di bawah).
 
 - `categories: []` kalau visit purpose ini belum ada item `qr_order = true` — bukan error (sama
   kayak member app).

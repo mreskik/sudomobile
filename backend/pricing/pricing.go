@@ -126,16 +126,17 @@ func ResolveItemTax(useTax string, cfg *VisitPurposeConfig, rates TaxRateMap) (*
 // 2 varian rasa). Struktur & nama field SENGAJA niru pola POS (MenuServices.php
 // packageList/menuPackageList), snake_case-in doang.
 type PackageSubItem struct {
-	MenuPackageID   int64   `json:"menu_package_id"`
-	ItemID          int64   `json:"item_id"`
-	ItemName        string  `json:"item_name"`
-	ItemDescription *string `json:"item_description"`
-	Price           string  `json:"price"`
-	IconSrc         *string `json:"icon_src"`
-	TaxType         string  `json:"tax_type"`
-	TaxID           *int64  `json:"tax_id"`
-	TaxRate         *string `json:"tax_rate"`
-	DefaultItem     bool    `json:"default_item"`
+	MenuPackageID   int64    `json:"menu_package_id"`
+	ItemID          int64    `json:"item_id"`
+	ItemName        string   `json:"item_name"`
+	ItemDescription *string  `json:"item_description"`
+	Price           string   `json:"price"`
+	IconSrc         *string  `json:"icon_src"`
+	TaxType         string   `json:"tax_type"`
+	TaxID           *int64   `json:"tax_id"`
+	TaxRate         *string  `json:"tax_rate"`
+	DefaultItem     bool     `json:"default_item"`
+	NotesMenu       []string `json:"notes_menu"`
 }
 
 type PackageGroup struct {
@@ -162,6 +163,13 @@ type packageRow struct {
 	SubItemDescription *string `bun:"sub_item_description"`
 	SubIconSrc         *string `bun:"sub_item_icon_src"`
 	SubUseTax          string  `bun:"sub_item_use_tax"`
+	// SubCategoryID/SubSubcategoryID (2026-09-25): category_id/subcategory_id MILIK SUB-ITEM
+	// ITU SENDIRI (submi.item_category/item_subcategory), dipakai buat matching notes_menu --
+	// BUKAN diwarisin dari item induk, karena 1 package bisa berisi sub-item lintas kategori
+	// (mis. minuman di dalam package makanan). Sama pola kayak resolusi tax sub-item (SubUseTax
+	// di atas) yang juga dari data sub-item sendiri, bukan warisan.
+	SubCategoryID    int64  `bun:"sub_item_category_id"`
+	SubSubcategoryID *int64 `bun:"sub_item_subcategory_id"`
 }
 
 // FetchPackages: batch 1 query buat SEMUA item_id sekaligus (bukan per-item, biar gak N+1) --
@@ -177,7 +185,7 @@ type packageRow struct {
 // niru PERSIS logic yang udah dipasang di MenuServices::GetMasterMenuList() POS -- CASE di SQL
 // di bawah = versi Go dari resolusi yang sama, fallback ke mipd.price kalau flag true ATAU
 // gak ketemu override-nya, BUKAN logic baru).
-func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitPurposeConfig, rates TaxRateMap) (map[int64][]PackageGroup, error) {
+func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitPurposeConfig, rates TaxRateMap, notesMenu []NotesMenuRow) (map[int64][]PackageGroup, error) {
 	result := map[int64][]PackageGroup{}
 	if len(itemIDs) == 0 {
 		return result, nil
@@ -199,7 +207,8 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 			END AS price,
 			mipd.default_item,
 			mipd.item_conversion_detail_id AS sub_item_id, submi.item_name AS sub_item_name, submi.item_description AS sub_item_description,
-			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax
+			submi.icon_src AS sub_item_icon_src, submi.use_tax AS sub_item_use_tax,
+			submi.item_category AS sub_item_category_id, submi.item_subcategory AS sub_item_subcategory_id
 		FROM master_item_package mip
 		JOIN master_item_package_group mipg ON mipg.item_package_id = mip.id
 		JOIN master_item_package_detail mipd ON mipd.package_group_id = mipg.id
@@ -227,6 +236,7 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 			TaxID:           taxID,
 			TaxRate:         taxRate,
 			DefaultItem:     row.DefaultItem,
+			NotesMenu:       ResolveNotesMenu(notesMenu, row.SubCategoryID, row.SubSubcategoryID),
 		}
 
 		groups := result[row.ParentItemID]
@@ -246,6 +256,73 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 	}
 
 	return result, nil
+}
+
+// NotesMenuRow: hasil mentah query FetchNotesMenu() -- 1 baris = 1 kombinasi
+// master_notes_menu x kategori/subkategori yang di-attach x baris detail (all_category cuma
+// 1 baris flat per notes menu x detail, gak ada join ke categories/subcategories). full_notes
+// NULLABLE (kolom TEXT, boleh kosong) -- baris yang null di-skip di ResolveNotesMenu(), BUKAN
+// diubah jadi string kosong.
+type NotesMenuRow struct {
+	AppliesTo     string  `bun:"applies_to"`
+	CategoryID    *int64  `bun:"category_id"`
+	SubcategoryID *int64  `bun:"sub_category_id"`
+	FullNotes     *string `bun:"full_notes"`
+}
+
+// FetchNotesMenu: TAHAP notes_menu (2026-09-25, port dari POS MenuServices::GetAllNotesMenuForMatching()
+// -- lihat POS/posv1-laravel/DOKUMENTASI API/KIOSK/KIOSK BRANCH VISIT PURPOSE DETAIL.md "Update
+// 2026-09-24"). Ditarik SEKALI per request (bukan per item) -- dicocokkan in-memory ke tiap item
+// lewat ResolveNotesMenu() di bawah, biar gak N+1 query pas loop pohon menu.
+//
+// BEDA DARI VERSI POS: master_notes_menu itu BRANCH-SCOPED (flag_all_branch + JOIN
+// master_notes_menu_branches), sementara mr_notes_menu di POS TIDAK -- karena POS sync-nya udah
+// pre-filter per branch di server (APIANDORDER), 1 install POS = 1 branch, filter branch gak
+// perlu diulang lagi di query lokal. sudomobile baca LANGSUNG ke ERP dan ngelayanin BANYAK
+// branch dalam 1 proses, jadi filter branch WAJIB ada di sini -- kalau di-skip, notes menu
+// branch lain bakal ikut bocor ke response branch yang salah. flag_active = true juga difilter
+// eksplisit (POS gak perlu, sync-nya cuma narik notes menu aktif).
+func FetchNotesMenu(ctx context.Context, db *bun.DB, branchID int64) ([]NotesMenuRow, error) {
+	rows := []NotesMenuRow{}
+	err := db.NewRaw(`
+		SELECT
+			mnm.applies_to,
+			mnc.category_id,
+			mns.sub_category_id,
+			mnd.full_notes
+		FROM master_notes_menu mnm
+		LEFT JOIN master_notes_menu_branches mnb ON mnb.master_notes_menu_id = mnm.id
+		LEFT JOIN master_notes_menu_categories mnc ON mnc.master_notes_menu_id = mnm.id
+		LEFT JOIN master_notes_menu_subcategories mns ON mns.master_notes_menu_id = mnm.id
+		LEFT JOIN master_notes_menu_detail mnd ON mnd.master_notes_menu_id = mnm.id
+		WHERE mnm.flag_active = true AND (mnm.flag_all_branch = true OR mnb.branch_id = ?)
+	`, branchID).Scan(ctx, &rows)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+// ResolveNotesMenu: cocokkan 1 item (category_id wajib ada, subCategoryID BOLEH nil -- item
+// tanpa subcategory) ke kumpulan baris dari FetchNotesMenu(), balikin full_notes UNIK yang
+// match -- rule: applies_to = all_category selalu ikut, category/sub_category match id-nya.
+// Sama rule persis POS (MenuServices::ResolveNotesMenu()), notes-nya di sini SELALU full_notes
+// (sudomobile/QR Order gak punya konsep short_notes quick-pick kayak POS -- notes di sini murni
+// informasi tambahan ditampilin ke customer, bukan textarea yang di-append).
+func ResolveNotesMenu(rows []NotesMenuRow, categoryID int64, subCategoryID *int64) []string {
+	seen := map[string]bool{}
+	notes := []string{}
+	for _, row := range rows {
+		match := row.AppliesTo == "all_category" ||
+			(row.AppliesTo == "category" && row.CategoryID != nil && *row.CategoryID == categoryID) ||
+			(row.AppliesTo == "sub_category" && row.SubcategoryID != nil && subCategoryID != nil && *row.SubcategoryID == *subCategoryID)
+
+		if match && row.FullNotes != nil && *row.FullNotes != "" && !seen[*row.FullNotes] {
+			seen[*row.FullNotes] = true
+			notes = append(notes, *row.FullNotes)
+		}
+	}
+	return notes
 }
 
 // LineCalculation: hasil CalculateLine() -- angka per 1 UNIT (belum dikali qty), string
