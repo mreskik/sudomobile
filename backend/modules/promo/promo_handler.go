@@ -1,6 +1,7 @@
 package promo
 
 import (
+	"context"
 	"strconv"
 
 	"sudomobile/backend/helpers"
@@ -23,7 +24,11 @@ func NewHandler(db *bun.DB) Handler {
 	return &handler{db: db}
 }
 
-type promoListItem struct {
+// PromoListItem: EXPORTED (2026-09-30) -- dipakai bareng GetList() (member app, di bawah) DAN
+// QRHandler.GetListPromo() (order/order_qr_promo_handler.go, QR Order publik) lewat
+// BuildPromoList(), biar response schema-nya SAMA PERSIS di kedua endpoint, gak ada 2 struct
+// yang gampang ke-drift kalau salah satu diubah belakangan tanpa nyadar yang satu lagi.
+type PromoListItem struct {
 	ID                     int64   `json:"id"`
 	Name                   string  `json:"name"`
 	Code                   string  `json:"code"`
@@ -38,6 +43,81 @@ type promoListItem struct {
 	MinPointAmount         string  `json:"min_point_amount"`
 	ApplyLimitPerDay       *int64  `json:"apply_limit_per_day"`
 	UsedToday              int64   `json:"used_today"`
+	// FlagRequiredMember (2026-09-30) -- true kalau promo ini cuma bisa dipakai member yang
+	// login (lihat KETENTUAN PROMO.md). Dibalikin sebagai info biar FE bisa nampilin badge
+	// "khusus member" tanpa nebak-nebak dari kombinasi field lain.
+	FlagRequiredMember bool `json:"flag_required_member"`
+	// FlagAllTiers/Tiers (2026-09-30) -- flag_all_tiers=true berarti promo berlaku SEMUA tier
+	// (Tiers kosong []). false berarti dibatasin ke tier tertentu -- Tiers berisi daftar
+	// tier_level+name yang di-allow (lihat pricing.FetchPromoTiers()).
+	FlagAllTiers bool                      `json:"flag_all_tiers"`
+	Tiers        []pricing.PromoTierOption `json:"tiers"`
+}
+
+// BuildPromoList: EXPORTED (2026-09-30) -- inti logic GetList() DIPISAH biar bisa dipanggil
+// ULANG dari QRHandler.GetListPromo() (QR Order, publik, guest -- gak ada member_type_id/
+// tier_level) TANPA duplikasi ~40 baris query batch (target_ids/tiers/used_today) + assembly
+// loop. Caller yang nentuin memberTypeID/tierLevel (member app: dari member yang login; QR
+// Order: 0/0 selalu, guest gak punya identitas member) DAN filter tambahan kalau perlu (QR
+// Order MEMBUANG promo FlagRequiredMember=true SETELAH BuildPromoList() manggil ini -- guest
+// gak mungkin penuhin syarat itu).
+func BuildPromoList(ctx context.Context, db *bun.DB, branchID, visitPurposeID int, memberTypeID int64, tierLevel int) ([]PromoListItem, error) {
+	promos, err := pricing.ListEligiblePromos(ctx, db, branchID, visitPurposeID, memberTypeID, tierLevel)
+	if err != nil {
+		return nil, err
+	}
+
+	targetIDs, err := pricing.FetchPromoTargetIDs(ctx, db, promos)
+	if err != nil {
+		return nil, err
+	}
+
+	promoTiers, err := pricing.FetchPromoTiers(ctx, db, promos)
+	if err != nil {
+		return nil, err
+	}
+
+	promoIDs := make([]int64, 0, len(promos))
+	for _, p := range promos {
+		promoIDs = append(promoIDs, p.ID)
+	}
+	usedToday, err := pricing.FetchPromoUsedTodayBatch(ctx, db, promoIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]PromoListItem, 0, len(promos))
+	for _, p := range promos {
+		targets := targetIDs[p.ID]
+		if targets == nil {
+			targets = []int64{}
+		}
+		tiers := promoTiers[p.ID]
+		if tiers == nil {
+			tiers = []pricing.PromoTierOption{}
+		}
+		list = append(list, PromoListItem{
+			ID:                     p.ID,
+			Name:                   p.Name,
+			Code:                   p.Code,
+			Type:                   p.Type,
+			TypeRupiahAmount:       p.TypeRupiahAmount,
+			TypePercentRate:        p.TypePercentRate,
+			TypePercentLimitAmount: p.TypePercentLimitAmount,
+			TypePercentUseLimit:    p.TypePercentUseLimit,
+			PromoFor:               p.PromoFor,
+			TargetIDs:              targets,
+			MinBuyAmount:           p.MinBuyAmount,
+			MinPointAmount:         p.MinPointAmount,
+			ApplyLimitPerDay:       p.ApplyLimitPerDay,
+			UsedToday:              usedToday[p.ID],
+			FlagRequiredMember:     p.FlagRequiredMember,
+			FlagAllTiers:           p.FlagAllTiers,
+			Tiers:                  tiers,
+		})
+	}
+
+	return list, nil
 }
 
 // GetList: daftar promo yang ELIGIBLE (lolos barrier struktural #1-8 di KETENTUAN PROMO.md --
@@ -68,52 +148,14 @@ func (h *handler) GetList(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
 	}
 
-	memberTypeID, err := pricing.FetchMemberTypeID(c.Context(), h.db, memberID)
+	memberTypeID, tierLevel, err := pricing.FetchMemberPromoAttrs(c.Context(), h.db, memberID)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data member"))
 	}
 
-	promos, err := pricing.ListEligiblePromos(c.Context(), h.db, branchID, visitPurposeID, memberTypeID)
+	list, err := BuildPromoList(c.Context(), h.db, branchID, visitPurposeID, memberTypeID, tierLevel)
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data promo"))
-	}
-
-	targetIDs, err := pricing.FetchPromoTargetIDs(c.Context(), h.db, promos)
-	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil target promo"))
-	}
-
-	promoIDs := make([]int64, 0, len(promos))
-	for _, p := range promos {
-		promoIDs = append(promoIDs, p.ID)
-	}
-	usedToday, err := pricing.FetchPromoUsedTodayBatch(c.Context(), h.db, promoIDs)
-	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data pemakaian promo"))
-	}
-
-	list := make([]promoListItem, 0, len(promos))
-	for _, p := range promos {
-		targets := targetIDs[p.ID]
-		if targets == nil {
-			targets = []int64{}
-		}
-		list = append(list, promoListItem{
-			ID:                     p.ID,
-			Name:                   p.Name,
-			Code:                   p.Code,
-			Type:                   p.Type,
-			TypeRupiahAmount:       p.TypeRupiahAmount,
-			TypePercentRate:        p.TypePercentRate,
-			TypePercentLimitAmount: p.TypePercentLimitAmount,
-			TypePercentUseLimit:    p.TypePercentUseLimit,
-			PromoFor:               p.PromoFor,
-			TargetIDs:              targets,
-			MinBuyAmount:           p.MinBuyAmount,
-			MinPointAmount:         p.MinPointAmount,
-			ApplyLimitPerDay:       p.ApplyLimitPerDay,
-			UsedToday:              usedToday[p.ID],
-		})
 	}
 
 	return c.JSON(res.Success().SetData(list))

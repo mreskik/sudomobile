@@ -26,7 +26,7 @@ Order gak ketemu (`order_number` salah/gak ada) → `{ "code": 100, "message": "
 2. Kalau belum, ambil attempt terbaru dari `mb_order_payment_request` (`ORDER BY created_at DESC LIMIT 1`), live-check `GET {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/{order_id}`.
 3. Status attempt di-update lokal (`mb_order_payment_request.status`) sesuai hasil live-check — **apa adanya** dari gateway (`settlement`, bukan `paid`).
 4. Kalau `settlement` → `finalizeSettledPayment()`: generate `payment_number` (baru, lihat [format-nya di bawah](#format-order_number-dan-payment_number-2026-08-26)), **update `mb_order`** (`status = 'paid'`, `payment_number` diisi) DULUAN, baru **insert `mb_order_payment`** (FINAL, `payment_method_id`/`payment_amount` diambil dari `mb_order_payment_request` — snapshot pas request dibuat, **BUKAN** dari client/gateway; `payment_gateway_order_id` diisi `order_id` attempt yang settlement) — urutan ini WAJIB (`mb_order_payment.payment_number` FK ke `mb_order.payment_number`, kebalik kena FK violation). Semua dalam 1 transaksi.
-5. Kalau `expired` → `mb_order.status` ikut disinkronin jadi `expired` (guard `WHERE status = 'pending'`, biar gak nabrak state lain kayak yang udah `paid`).
+5. Kalau `expired` → `expireOrderAndRefundPoint()`: `mb_order.status` ikut disinkronin jadi `expired` (guard `WHERE status = 'pending'`, biar gak nabrak state lain kayak yang udah `paid`), **DAN** kalau order ini punya `point_redeem_amount > 0` (dipotong pas [`CREATE ORDER.md`](CREATE%20ORDER.md#potong-poin-buat-promo-bersyarat-poin-min_point_amount-2026-09-30)), poinnya **direfund** — insert baris baru `member_point_ledger` (`transaction_type = 'redeem_reversal'`). Refund di-SKIP kalau `UPDATE mb_order` di atas ternyata no-op (order udah keburu `paid` duluan, race) — order yang beneran kebayar gak boleh ke-refund poinnya cuma gara-gara kesenggol sweep expired.
 6. `pending`/`cancel`/`failed` → dibalikin apa adanya, gak ada state `mb_order` yang perlu disinkronin.
 
 **Jawaban buat "kalau dibiarin terus, orderan yang gak dibayar jadi apa"**: `mb_order.status` TETAP `pending` selamanya SAMPAI endpoint ini dipanggil minimal 1x setelah QR-nya expired. Gak ada job/cron otomatis yang mantau ini sekarang — sinkronisasi status expired murni terjadi pas polling (langkah 6 di atas), sama persis kelakuan Kiosk POS sebelum dibenerin (order yang QR-nya gak pernah discan nyangkut `pending` selamanya sampai endpoint check-status ini dipanggil).
@@ -50,7 +50,7 @@ Keduanya niru pola PENAMAAN yang dipakai POS (`OrderServices::GenerateOrderNumbe
 
 ## Sumber data / implementasi
 
-- `sudomobile/backend/modules/order/order_payment_status_handler.go` — `CheckPaymentStatus()`, `finalizeSettledPayment()`.
+- `sudomobile/backend/modules/order/order_payment_status_handler.go` — `CheckPaymentStatus()`, `finalizeSettledPayment()`, `expireOrderAndRefundPoint()` + `refundMemberPoint()` (BARU 2026-09-30, lihat [`CREATE ORDER.md`](CREATE%20ORDER.md#potong-poin-buat-promo-bersyarat-poin-min_point_amount-2026-09-30)).
 - `sudomobile/backend/modules/order/generators.go` — `generateReferenceNumber()`, `generateOrderNumber()`, `generatePaymentNumber()`.
 - `sudomobile/backend/modules/order/payment_gateway_client.go` — `getPaymentGatewayStatus()` (`GET {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/{order_id}`).
 

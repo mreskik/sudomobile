@@ -122,7 +122,9 @@ func SyncPaymentStatus(ctx context.Context, db *bun.DB, orderNumber, currentOrde
 		}
 		return "paid", gatewayResp, "", nil
 	case "expired":
-		_, _ = db.NewRaw(`UPDATE mb_order SET status = 'expired', updated_at = now() WHERE order_number = ? AND status = 'pending'`, orderNumber).Exec(ctx)
+		if err := expireOrderAndRefundPoint(ctx, db, orderNumber); err != nil {
+			return "", nil, "", err
+		}
 		return "expired", gatewayResp, "", nil
 	default:
 		// pending / cancel / failed -- dibalikin apa adanya, gak ada state mb_order yang perlu
@@ -180,4 +182,78 @@ func finalizeSettledPayment(ctx context.Context, db *bun.DB, orderNumber, paymen
 		_, err := tx.NewRaw(`SELECT pg_notify('mb_order_paid', ?)`, payload).Exec(ctx)
 		return err
 	})
+}
+
+// expireOrderAndRefundPoint: update mb_order.status='expired' + refund poin (kalau order ini
+// punya point_redeem_amount > 0, dipotong pas Create() -- lihat redeemMemberPoint()) dalam 1
+// transaksi. Guard WHERE status='pending' di UPDATE mb_order -- kalau ternyata order ini udah
+// ke-update status lain duluan (race, mis. keburu paid), UPDATE ini no-op (RowsAffected 0) dan
+// refund SENGAJA DI-SKIP (guard eksplisit di bawah) -- order yang beneran paid gak boleh
+// ke-refund poinnya cuma gara-gara job expired sweep sempet nyenggol bareng.
+func expireOrderAndRefundPoint(ctx context.Context, db *bun.DB, orderNumber string) error {
+	return db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewRaw(`
+			UPDATE mb_order SET status = 'expired', updated_at = now() WHERE order_number = ? AND status = 'pending'
+		`, orderNumber).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return nil
+		}
+		return refundMemberPoint(ctx, tx, orderNumber)
+	})
+}
+
+// refundMemberPoint: kembalikan poin yang kepotong pas Create() -- dipanggil dari
+// expireOrderAndRefundPoint() maupun CancelOrder(). Insert baris BARU (point_in, transaction_type
+// 'redeem_reversal') -- TIDAK edit/hapus baris redeem lama (soft-delete-as-reversal, sama pola
+// kayak Member Point Adjustment di sudocore2). No-op (bukan error) kalau order ini emang gak
+// pernah py baris redeem (point_redeem_amount = 0, promo biasa tanpa syarat poin) -- guard
+// idempotency-nya constraint UNIQUE(reference_number, transaction_type) WHERE mmpc_id IS NULL
+// (migration 232), ON CONFLICT DO NOTHING -- refund gak bakal dobel kalau expire sweep dan
+// polling manual kebetulan nyenggol bareng buat order yang sama.
+func refundMemberPoint(ctx context.Context, tx bun.Tx, orderNumber string) error {
+	var redeemed struct {
+		MemberID  *int64  `bun:"member_id"`
+		BranchID  int     `bun:"branch_id"`
+		CompanyID *int    `bun:"company_id"`
+		Amount    float64 `bun:"amount"`
+	}
+	err := tx.NewRaw(`
+		SELECT mo.member_id, mo.branch_id, mo.company_id, mo.point_redeem_amount AS amount
+		FROM mb_order mo WHERE mo.order_number = ? AND mo.point_redeem_amount > 0
+	`, orderNumber).Scan(ctx, &redeemed)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	if redeemed.MemberID == nil {
+		return nil
+	}
+
+	var currentBalance float64
+	err = tx.NewRaw(`
+		SELECT balance_after FROM member_point_ledger
+		WHERE member_id = ? AND is_deleted = false
+		ORDER BY created_at DESC, id DESC LIMIT 1
+	`, *redeemed.MemberID).Scan(ctx, &currentBalance)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	newBalance := currentBalance + redeemed.Amount
+	_, err = tx.NewRaw(`
+		INSERT INTO member_point_ledger
+			(member_id, branch_id, transaction_type, reference_number, point_in, point_out, balance_after, company_id)
+		VALUES (?, ?, 'redeem_reversal', ?, ?, 0, ?, ?)
+		ON CONFLICT (reference_number, transaction_type) WHERE mmpc_id IS NULL DO NOTHING
+	`, *redeemed.MemberID, redeemed.BranchID, orderNumber, redeemed.Amount, newBalance, redeemed.CompanyID).Exec(ctx)
+	return err
 }

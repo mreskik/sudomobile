@@ -58,10 +58,23 @@ func (h *handler) CancelOrder(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("order ternyata sudah dibayar, tidak jadi di-cancel"))
 	}
 
-	_, err = h.db.NewRaw(`
-		UPDATE mb_order SET status = 'cancel', cancel_at = now(), cancel_notes = ?, updated_at = now()
-		WHERE order_number = ? AND status = 'pending'
-	`, nullIfEmpty(body.Notes), orderNumber).Exec(ctx)
+	err = h.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		res, err := tx.NewRaw(`
+			UPDATE mb_order SET status = 'cancel', cancel_at = now(), cancel_notes = ?, updated_at = now()
+			WHERE order_number = ? AND status = 'pending'
+		`, nullIfEmpty(body.Notes), orderNumber).Exec(ctx)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return nil
+		}
+		return refundMemberPoint(ctx, tx, orderNumber)
+	})
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal cancel order"))
 	}

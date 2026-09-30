@@ -1,6 +1,6 @@
 # QR Order - Create Order
 
-**Status: SELESAI & tervalidasi live (2026-09-17).**
+**Status: SELESAI & tervalidasi live (2026-09-17). Promo publik dibuka (2026-09-30, REVISI, BELUM tervalidasi live).**
 
 ```
 POST /qr-order/create-order?db_code=SUDO&company_code=SUDO&branch_code=SBE&visit_purpose_code=ASD
@@ -30,6 +30,7 @@ Body:
   "order_name": "Budi",
   "customer_phone_number": "081234567890",
   "payment_method_id": 1,
+  "use_promo_ids": [22],
   "items": [
     {
       "menu_id": 109,
@@ -43,6 +44,8 @@ Body:
 }
 ```
 
+`use_promo_ids` opsional — kirim array kosong `[]` atau jangan disertakan sama sekali kalau gak pakai promo (perilaku sebelum revisi 2026-09-30, `total_discount`/`discount_amount` tetap `"0.00"` di response).
+
 - `order_name` — **wajib** (order QR = tamu, gak ada `member_id`; nama ini yang dipakai
   POS/dapur buat manggil pesanan & nempel di struk). Disimpen ke `mb_order.order_name`
   (migration `210`, DIRENAME dari `customer_name` di migration `211` biar sama persis nama kolom
@@ -52,8 +55,11 @@ Body:
   (gateway-only, scope branch+visit purpose) — resolve pakai fungsi yang sama
   (`pricing.ResolvePaymentMethod()`).
 - `items[]` — sama persis [`CALCULATE.md`](./05%20CALCULATE.md).
-- **`use_promo_ids` DITOLAK kalau diisi** (`"promo belum didukung di QR Order"`) — bukan diem-diem
-  diabaikan. Promo belum ada di QR Order v1 sama sekali.
+- **`use_promo_ids`** (2026-09-30, REVISI dari kelakuan lama) — array, **maksimal 1 elemen**,
+  diterusin APA ADANYA ke `calculateOrder()` sama persis logic member app — lihat "Alur" di
+  bawah dan [`05 CALCULATE.md`](./05%20CALCULATE.md) buat penjelasan lengkap kenapa cuma promo
+  publik (`flag_required_member=false`, `flag_all_type_members=true`, `flag_all_tiers=true`)
+  yang bisa lolos di sini.
 - **Gak ada `table_number`** — sempat direncanain di draft awal, dibuang dari v1 (masih belum
   diputusin teks bebas vs FK ke table_section) — lihat "Belum dikerjain" di bawah.
 
@@ -114,6 +120,15 @@ Sukses (payment gateway berhasil diminta):
 tetep kebuat**, sama persis semantik member app). Ditambah di `data`: `"order_source": "qr"`,
 `"order_name"`.
 
+Contoh di atas **tanpa promo** (data test live 2026-09-17, sebelum revisi promo) — `promo_id`/
+`promo_name`/`discount_amount`/`total_discount` semuanya kosong/`0`. Kalau `use_promo_ids`
+dikirim dan promo publik yang dipakai beneran match ke item itu, field-field itu keisi sama
+persis pola member app — lihat contoh dengan promo di
+[`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#response) dan
+[`../MOBILE/ORDER/KETENTUAN PROMO.md`](../../MOBILE/ORDER/KETENTUAN%20PROMO.md) (formula
+diskon/DPP-first). **Belum ada contoh response promo QR Order yang beneran tervalidasi live**
+(lihat catatan status di atas dokumen ini).
+
 `order_number` ini **satu-satunya pegangan** customer buat [`ORDER DETAIL.md`](./08%20ORDER%20DETAIL.md)
 (keputusan 2026-09-17: tanpa token tambahan — FE wajib simpen di device, mis. localStorage).
 
@@ -139,27 +154,34 @@ Urutan cek (berhenti di kegagalan pertama):
 2. `order_name` kosong → `"order_name wajib diisi"`.
 3. `items` kosong → `"items tidak boleh kosong"`.
 4. `payment_method_id` kosong → `"payment_method_id wajib diisi"`.
-5. `use_promo_ids` diisi (gak kosong) → `"promo belum didukung di QR Order"`.
-6. Branch lagi tutup (`master_branch_ops_setting`, `branch.IsOpenNow()`) →
+5. Branch lagi tutup (`master_branch_ops_setting`, `branch.IsOpenNow()`) →
    `"cabang sedang tutup (di luar jam operasional)"`.
-7. Branch offline (POS gak kirim heartbeat, `heartbeat.IsOnline()`) →
+6. Branch offline (POS gak kirim heartbeat, `heartbeat.IsOnline()`) →
    `"cabang sedang offline, coba lagi nanti"`.
-8. Validasi item/package (sama persis [`CALCULATE.md`](./05%20CALCULATE.md), lewat `calculateOrder()`
-   yang sama) — `"item tidak ditemukan..."`, `"package tidak ditemukan buat item ini"`, dst.
-9. `payment_method_id` gak ketemu/gak lolos filter →
+7. Barrier promo LENGKAP (2026-09-30, REVISI — dulu langsung ditolak di poin ini, sekarang lewat
+   `calculateOrder()` yang sama dipakai member app, lihat [`KETENTUAN PROMO.md`](../../MOBILE/ORDER/KETENTUAN%20PROMO.md)
+   buat daftar lengkap) + validasi item/package (sama persis [`CALCULATE.md`](./05%20CALCULATE.md)) —
+   `"cuma boleh pakai maksimal 1 promo per order"`, `"This promo is for members only"` (promo
+   butuh identitas member — SELALU kena di QR Order karena `member_id` gak pernah ada),
+   `"promo {id} tidak ditemukan / tidak berlaku"`, `"item tidak ditemukan..."`, dst.
+8. `payment_method_id` gak ketemu/gak lolos filter →
    `"payment method tidak ditemukan / tidak berlaku"`.
 
-Poin 6-7 **cuma di Create**, gak ada di rencana `CALCULATE.md` (preview, gak nyimpen apa-apa) —
+Poin 5-6 **cuma di Create**, gak ada di rencana `CALCULATE.md` (preview, gak nyimpen apa-apa) —
 sama pola kayak member app.
 
 ## Alur (reuse fungsi member app, header beda)
 
-1. `calculateOrder(ctx, db, calcReq, 0)` — `memberID=0` aman karena `UsePromoIDs` udah dipastikan
-   kosong di validasi #5, cabang promo (`fetchMemberPromoContext`) gak pernah kesentuh.
+1. `calculateOrder(ctx, db, calcReq, 0)` — `calcReq.UsePromoIDs` diterusin apa adanya
+   (2026-09-30, REVISI — dulu udah dipastikan kosong duluan). `memberID=0` SELALU (QR Order gak
+   pernah ada login) — barrier promo yang butuh identitas member otomatis nolak, lihat
+   [`05 CALCULATE.md`](./05%20CALCULATE.md#catatan-implementasi).
 2. `generateOrderNumber(branchCode)` (`"NO"+branch_code+YmdHis+2 digit`, fungsi member app apa
    adanya) → `insertQROrder()` (versi QR Order dari `insertOrder()` — header beda, detail item
    lewat `insertOrderItems()` yang **sama fungsinya**, diekstrak dari `insertOrder()` biar dipakai
-   bareng tanpa duplikasi) dalam 1 transaksi.
+   bareng tanpa duplikasi) dalam 1 transaksi. `insertQROrder()` TIDAK diubah buat promo — `total_discount`
+   (header) dan `promo_id`/`discount_amount` (per item) udah otomatis kesimpen dari `calcResult`
+   kalau promo publik beneran diterapkan.
 3. `requestPaymentForOrder()` (fungsi member app apa adanya) — insert `mb_order_payment_request`
    (`pending`) → `POST {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/qris` → gagal: request
    di-update `failed`, order **gak** di-rollback.
@@ -193,7 +215,9 @@ Yang gak dibayar sampai `expired_at` diberesin job `orderstatuschanger`.
 - **`table_number`** — masih belum diputusin (teks bebas vs FK ke `table_section`), dibuang dari
   request/response Create sampai jelas. Kalau nanti masuk: kolom baru `mb_order.table_number` +
   field baru di body.
-- **Promo** — lihat "Belum dikerjain" di [`KETENTUAN QR ORDER.md`](../KETENTUAN%20QR%20ORDER.md).
+- ~~**Promo**~~ — DIBUKA 2026-09-30 (promo publik doang, lihat bagian Request/Validasi/Alur di
+  atas). Catatan lama di [`KETENTUAN QR ORDER.md`](../KETENTUAN%20QR%20ORDER.md) soal ini perlu
+  dicek/disesuaikan juga.
 
 **Cek ikutan job tier/point — SUDAH DICEK (2026-09-17), AMAN.** Ditelusuri jalur lengkapnya:
 `mb_order.member_id NULL` (order QR) → ditarik `APIANDORDER` `GetPending()`
@@ -302,6 +326,8 @@ Branch 51 (`SBE`)/company `SUDO`/visit purpose 7 (`ASD`, `kiosk_mode` `NULL`), i
 - `order_name` kosong → `"order_name wajib diisi"`. `items: []` →
   `"items tidak boleh kosong"`. `payment_method_id` kosong → `"payment_method_id wajib diisi"`.
   `use_promo_ids: [23]` diisi → `"promo belum didukung di QR Order"` (ditolak, bukan diabaikan).
+  **(⚠️ historis, sebelum revisi 2026-09-30 — promo sekarang dibuka buat promo publik, lihat
+  bagian Validasi di atas, belum ada retes live buat kondisi baru ini)**
 
 Semua data test (2 order + detail + payment_request) dihapus lagi, `branch_heartbeat`/
 `master_branch_ops_setting` branch 51 dibalikin persis ke kondisi semula. `go build`/`go vet`

@@ -222,6 +222,9 @@ func RegisterRoutes(app *fiber.App) {
 	// REUSE resolveOrderDetailCore() yang sama dipakai GetDetail() member app. Lihat DOKUMENTASI
 	// API/QR ORDER/ORDER DETAIL.md.
 	qrOrderRouter.Get("/order/:order_number", qrOrderHandler.GetDetail)
+	// List promo publik (flag_required_member=false doang) -- lihat DOKUMENTASI API/QR ORDER/
+	// GET LIST PROMO.md.
+	qrOrderRouter.Get("/promo", qrOrderHandler.GetListPromo)
 
 	// Pohon menu + harga + pajak + package -- REUSE resolveVisitPurposeDetail() yang sama dipakai
 	// member app (branch_id/visit_purpose_id dari 4 kode, bukan path). Lihat DOKUMENTASI API/QR

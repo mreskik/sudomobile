@@ -4,7 +4,9 @@
 GET /api/branch/:branch_id/visit-purpose/:visit_purpose_id/promo
 ```
 
-**PROTECTED** (wajib `Authorization: Bearer <token>`) — daftar promo yang ELIGIBLE buat 1 kombinasi branch+visit_purpose+member yang lagi login. Wajib login karena salah satu filter eligibility butuh `member_type_id` customer.
+**PROTECTED** (wajib `Authorization: Bearer <token>`) — daftar promo yang ELIGIBLE buat 1 kombinasi branch+visit_purpose+member yang lagi login. Wajib login karena salah satu filter eligibility butuh `member_type_id`/`tier_level` customer.
+
+**Beda dari `Calculate()`/`Create()` (2026-09-30)** — endpoint List ini TETAP wajib login secara blok total (gak berubah), walau `Calculate()`/`Create()` udah direvisi jadi publik dengan guard promo per-promo (`flag_required_member`, lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #6c). Alasannya beda: List butuh `member_type_id`/`tier_level` buat filter eligibility SEMUA promo di list (bukan cuma yang `flag_required_member=true`), jadi gak ada skenario "list tanpa login" yang masuk akal di sini.
 
 Lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) buat penjelasan lengkap mekanisme promo — dokumen ini fokus ke spek endpoint doang.
 
@@ -33,7 +35,13 @@ Lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) buat penjelasan lengkap mekan
       "min_buy_amount": "0.00",
       "min_point_amount": "0",
       "apply_limit_per_day": 10,
-      "used_today": 0
+      "used_today": 0,
+      "flag_required_member": false,
+      "flag_all_tiers": false,
+      "tiers": [
+        { "tier_level": 1, "name": "Bronze" },
+        { "tier_level": 2, "name": "Silver" }
+      ]
     }
   ]
 }
@@ -41,6 +49,8 @@ Lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) buat penjelasan lengkap mekan
 
 - `target_ids` — isinya `category_id`/`sub_category_id`/`item_id` (tergantung `promo_for` promo itu masing-masing, BISA BEDA per promo dalam 1 response). FE boleh pakai ini buat preview visual (misal badge "dapat promo" di menu), tapi **keputusan final tetap di server** pas `POST /api/order/calculate` — target_ids ini bukan jaminan, cuma info.
 - `min_buy_amount`/`min_point_amount`/`apply_limit_per_day`/`used_today` — **info mentah, BUKAN filter**. Promo yang subtotal belanjanya belum cukup, atau limit hariannya udah abis, TETAP MUNCUL di list ini (beda dari `Calculate()` yang bakal nolak beneran pas dipakai) — biar FE bisa nampilin syarat/status ("min. belanja Rp50.000", "min. 100 poin", "1/10 kepake hari ini") tanpa harus nebak sendiri kenapa promo gak bisa dipilih.
+- `flag_required_member` (2026-09-30) — `true` kalau promo ini cuma bisa dipakai sambil ada member (login) pas order disubmit lewat `Calculate()`/`Create()`, `false` kalau tetap bisa dipakai guest (lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #0b). Karena endpoint List ini sendiri SELALU wajib login (lihat catatan di atas), field ini gak pernah jadi alasan promo hilang dari list — murni info biar FE bisa nampilin badge "khusus member" di UI kalau perlu (mis. guest yang somehow bisa lihat list ini via endpoint lain, atau buat konsistensi visual walau di context ini semua yang lihat udah pasti login).
+- `flag_all_tiers`/`tiers` (2026-09-30) — sama pola `target_ids`, tapi buat dimensi Tier Member (lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #6b). `flag_all_tiers: true` → promo berlaku SEMUA tier, `tiers: []` (gak relevan). `flag_all_tiers: false` → `tiers` berisi daftar tier yang di-allow (`tier_level`+`name`, JOIN ke `master_member_tier_setting_detail` — nama-nya langsung disertakan, FE gak perlu fetch [`dropdown-tier-level`](../../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20PROMO.md) terpisah cuma buat nampilin nama tier di sini). Promo yang list ini kembalikan **udah pasti lolos barrier tier** (`tier_level` member yang login match salah satu di sini, ATAU `flag_all_tiers=true`) — `tiers` di sini murni info buat FE, bukan alasan filter.
 - Tipe `freeitem` **gak pernah muncul** di list ini (belum didukung sama sekali, lihat `KETENTUAN PROMO.md`).
 
 `branch_id`/`visit_purpose_id` yang bukan angka → `{ "code": 100, "message": "branch_id tidak valid" }` / `"visit_purpose_id tidak valid"`. Kombinasi yang gak ada promo eligible sama sekali → array kosong `[]`, bukan error. Tanpa `Authorization` → `{ "code": 100, "message": "token tidak ditemukan" }`.

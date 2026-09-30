@@ -25,7 +25,7 @@ Sistem order di `sudomobile` "sekali jalan" — item/diskon/`payment_method_id` 
      - Live-check balikin **`settlement`** → **JANGAN dicancel** — payment di-finalize (fungsi yang SAMA dipakai [`PAYMENT STATUS.md`](PAYMENT%20STATUS.md): insert `mb_order_payment` + `mb_order.status = 'paid'`). Proses cancel order **DIHENTIKAN** di sini, balikin race response (lihat bawah).
      - Live-check balikin status lain yang UDAH bukan `pending` (`expired`/`cancel`/`failed`) → gak perlu dicancel lagi, sinkronin status lokal aja.
      - Live-check balikin `pending` (atau live-check-nya sendiri gagal, mis. network) → `POST {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/{order_id}/cancel` beneran dipanggil, `mb_order_payment_request.status` di-update `cancel`.
-3. **Update `mb_order`** — `status = 'cancel'`, `cancel_at`/`cancel_notes` keisi (guard `WHERE status = 'pending'` — kalau ternyata udah keubah gara-gara race di langkah 2, update ini gak ngefek/gak nabrak).
+3. **Update `mb_order` + refund poin (1 transaksi, BARU 2026-09-30)** — `status = 'cancel'`, `cancel_at`/`cancel_notes` keisi (guard `WHERE status = 'pending'` — kalau ternyata udah keubah gara-gara race di langkah 2, update ini gak ngefek/gak nabrak). Kalau update-nya beneran kena (bukan no-op) DAN order ini punya `point_redeem_amount > 0` (dipotong pas [`CREATE ORDER.md`](CREATE%20ORDER.md#potong-poin-buat-promo-bersyarat-poin-min_point_amount-2026-09-30)), poinnya **direfund** — insert baris baru `member_point_ledger` (`transaction_type = 'redeem_reversal'`), dalam transaksi yang sama dengan update status.
 
 ## Response
 
@@ -55,9 +55,10 @@ Order udah bukan `pending` (udah `paid`/`cancel`/`expired`):
 
 ## Sumber data / implementasi
 
-- `sudomobile/backend/modules/order/order_cancel_handler.go` — `CancelOrder()`, `cancelPendingAttempt()`.
+- `sudomobile/backend/modules/order/order_cancel_handler.go` — `CancelOrder()` (sekarang dibungkus transaksi), `cancelPendingAttempt()`.
 - `sudomobile/backend/modules/order/payment_gateway_client.go` — `cancelPaymentGateway()` (`POST {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/{order_id}/cancel`).
 - Reuse `finalizeSettledPayment()` yang sama dipakai [`PAYMENT STATUS.md`](PAYMENT%20STATUS.md) buat kasus race.
+- Reuse `refundMemberPoint()` (`order_payment_status_handler.go`, BARU 2026-09-30) buat refund poin — fungsi yang sama juga dipakai `expireOrderAndRefundPoint()` di [`PAYMENT STATUS.md`](PAYMENT%20STATUS.md).
 
 ## Tervalidasi live (2026-08-25)
 

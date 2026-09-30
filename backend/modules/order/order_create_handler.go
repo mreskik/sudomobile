@@ -2,6 +2,8 @@ package order
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"math"
 	"strconv"
 
@@ -150,8 +152,10 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}))
 }
 
-// insertOrder: 1 transaksi -- mb_order + mb_order_detail + mb_order_detail_package. Kalau ada
-// yang gagal di tengah, semua di-rollback (order gak boleh nyangkut separuh jadi).
+// insertOrder: 1 transaksi -- mb_order + mb_order_detail + mb_order_detail_package + (kalau ada
+// promo bersyarat poin) baris redeem member_point_ledger. Kalau ada yang gagal di tengah, semua
+// di-rollback (order gak boleh nyangkut separuh jadi, poin gak boleh kepotong kalau order-nya
+// gagal ke-insert).
 //
 // memberID 0 (2026-09-22, PUBLIK -- gak login) DISIMPEN SEBAGAI NULL, BUKAN literal 0 -- 0 bukan
 // id member yang valid, dan mb_order.member_id emang udah NULLABLE dari migration 208 (awalnya
@@ -167,19 +171,60 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 			INSERT INTO mb_order (
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, service_charge, platform_fee, delivery_cost,
-				sub_total, total_discount, total_tax, total_billing,
+				sub_total, total_discount, total_tax, total_billing, point_redeem_amount,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
 		`, orderNumber, body.BranchID, memberIDParam, body.VisitPurposeID,
-			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling,
+			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling, result.PointRedeemAmount,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID, nullIfEmpty(body.CustomerName),
 		).Exec(ctx)
 		if err != nil {
 			return err
 		}
 
-		return insertOrderItems(ctx, tx, orderNumber, result)
+		if err := insertOrderItems(ctx, tx, orderNumber, result); err != nil {
+			return err
+		}
+
+		if result.PointRedeemAmount > 0 {
+			if memberIDParam == nil {
+				return fmt.Errorf("promo bersyarat poin butuh member login")
+			}
+			if err := redeemMemberPoint(ctx, tx, *memberIDParam, body.BranchID, companyID, orderNumber, result.PointRedeemAmount); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
+}
+
+// redeemMemberPoint: potong poin member LANGSUNG pas order dibuat (bukan nunggu payment
+// settlement -- lihat catatan migration 231/232 kenapa). Insert baris baru ke
+// member_point_ledger, TIDAK ada validasi "saldo cukup/enggak" di sini -- itu udah dicek di
+// calculateOrder() (min_point_amount vs memberPoint). Saldo BOLEH jadi negatif kalau ada race
+// (2 order dibuat nyaris bersamaan, keduanya lolos validasi baca saldo yang sama) -- sengaja
+// dibiarkan (bukan digagalkan) demi konsistensi: reservasi poin ini sendiri yang jadi
+// pencegahnya buat order BERIKUTNYA (bakal baca saldo yang udah berkurang), bukan barrier
+// tambahan yang bisa nge-block order yang SAAT INI lagi diproses.
+func redeemMemberPoint(ctx context.Context, tx bun.Tx, memberID int64, branchID int, companyID *int, orderNumber string, amount float64) error {
+	var currentBalance float64
+	err := tx.NewRaw(`
+		SELECT balance_after FROM member_point_ledger
+		WHERE member_id = ? AND is_deleted = false
+		ORDER BY created_at DESC, id DESC LIMIT 1
+	`, memberID).Scan(ctx, &currentBalance)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+
+	newBalance := currentBalance - amount
+	_, err = tx.NewRaw(`
+		INSERT INTO member_point_ledger
+			(member_id, branch_id, transaction_type, reference_number, point_in, point_out, balance_after, company_id)
+		VALUES (?, ?, 'redeem', ?, 0, ?, ?, ?)
+	`, memberID, branchID, orderNumber, amount, newBalance, companyID).Exec(ctx)
+	return err
 }
 
 // insertOrderItems: insert mb_order_detail + mb_order_detail_package buat semua item hasil

@@ -139,6 +139,12 @@ type calculateResult struct {
 	TotalTax         string           `json:"total_tax"`
 	TotalDiscount    string           `json:"total_discount"`
 	TotalBilling     string           `json:"total_billing"`
+	// PointRedeemAmount: SUM min_point_amount dari semua promo (UNIK per promo, bukan per baris
+	// item -- min_point_amount itu syarat level PROMO) yang dipakai & punya min_point_amount > 0.
+	// Dipotong LANGSUNG pas Create() (lihat catatan migration 231) -- BUKAN nunggu payment
+	// settlement, biar gak ada risiko duit udah settle di gateway tapi order gagal gara-gara
+	// validasi poin.
+	PointRedeemAmount float64 `json:"point_redeem_amount"`
 }
 
 // Calculate: preview breakdown harga/pajak SEBELUM order beneran disubmit -- TANPA insert apa
@@ -228,18 +234,28 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		return nil, "", err
 	}
 
-	// hasPromo: cuma fetch data member (member_type_id + saldo poin) kalau BENERAN ada promo yang
-	// diminta. PUBLIK (2026-09-22) -- endpoint ini gak lagi wajib Authorization, jadi memberID
-	// bisa 0 (gak login). Promo TETAP wajib login (sama kayak QR Order) -- guard di sini,
-	// SEBELUM fetchMemberPromoContext() dipanggil dengan memberID 0 (yang bakal nyasar/gagal).
-	if len(body.UsePromoIDs) > 0 && memberID == 0 {
-		return nil, "promo tidak bisa dipakai tanpa login", nil
+	// Barrier (2026-09-30): maksimal 1 promo per order -- SEBELUM guard login di bawah, biar
+	// pesan errornya spesifik ("kebanyakan promo") bukan ke-mask sama pesan generic lain kalau
+	// kebetulan gak login juga.
+	if len(body.UsePromoIDs) > 1 {
+		return nil, "cuma boleh pakai maksimal 1 promo per order", nil
 	}
 
+	// hasPromo: cuma fetch data member (member_type_id/tier_level/saldo poin) kalau BENERAN ada
+	// promo yang diminta. PUBLIK (2026-09-22) -- endpoint ini gak lagi wajib Authorization, jadi
+	// memberID bisa 0 (gak login). fetchMemberPromoContext() AMAN dipanggil dengan memberID 0
+	// (FetchMemberPromoAttrs() short-circuit balikin 0/0, gak nyoba query WHERE id=0 yang bakal
+	// ErrNoRows) -- semua nilainya default 0, konsisten sama semantik "gak ada member".
+	//
+	// (2026-09-30) Guard blok total "promo tidak bisa dipakai tanpa login" di titik ini DIHAPUS
+	// -- diganti validasi PER-PROMO (flag_required_member, dicek abis ResolvePromo() berhasil di
+	// bawah), niru kelakuan POS (MasterController::GetPromoList() PHP, member_type_id boleh
+	// NULL) -- promo yang FlagRequiredMember=false TETAP bisa dipakai guest.
 	var memberTypeID int64
+	var tierLevel int
 	var memberPoint float64
 	if len(body.UsePromoIDs) > 0 {
-		memberTypeID, memberPoint, err = fetchMemberPromoContext(ctx, db, memberID)
+		memberTypeID, tierLevel, memberPoint, err = fetchMemberPromoContext(ctx, db, memberID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -284,8 +300,23 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	// mana yang cocok jadi target tiap promo (BUKAN client yang nunjuk). assignedPromo:
 	// index di `pending` -> promo yang kena ke baris itu (nil kalau gak ada).
 	assignedPromo := make([]*pricing.Promo, len(pending))
+	pointRedeemAmount := 0.0
 	for _, promoID := range body.UsePromoIDs {
-		promo, dErr := pricing.ResolvePromo(ctx, db, promoID, body.BranchID, body.VisitPurposeID, memberTypeID)
+		// flag_required_member dicek DULUAN (2026-09-30, REVISI urutan) -- SEBELUM ResolvePromo()
+		// (yang juga ngecek member_type_id/tier_level/branch/dst). Alasannya: kalau member_type/
+		// tier gak cocok DAN member emang gak login, ResolvePromo() bakal balikin nil juga (karena
+		// guest gak punya member_type_id/tier_level yang valid) -- pesannya jadi generik "promo
+		// tidak ditemukan / tidak berlaku", padahal akar masalahnya lebih mendasar: emang gak
+		// login. Cek ini duluan kasih pesan yang lebih tepat sasaran ke guest.
+		requiresMember, dErr := pricing.CheckPromoRequiresMember(ctx, db, promoID)
+		if dErr != nil {
+			return nil, "", dErr
+		}
+		if requiresMember && memberID == 0 {
+			return nil, "This promo is for members only", nil
+		}
+
+		promo, dErr := pricing.ResolvePromo(ctx, db, promoID, body.BranchID, body.VisitPurposeID, memberTypeID, tierLevel)
 		if dErr != nil {
 			return nil, "", dErr
 		}
@@ -329,6 +360,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		if !matchedAny {
 			return nil, fmt.Sprintf("promo %d tidak berlaku buat item apa pun di cart", promoID), nil
 		}
+		pointRedeemAmount += minPoint
 	}
 
 	subTotal, totalTax, totalBilling, totalDiscount := 0.0, 0.0, 0.0, 0.0
@@ -459,18 +491,20 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	result.TotalTax = formatFloat(totalTax)
 	result.TotalDiscount = formatFloat(totalDiscount)
 	result.TotalBilling = formatFloat(totalBilling)
+	result.PointRedeemAmount = pointRedeemAmount
 
 	return result, "", nil
 }
 
-// fetchMemberPromoContext: member_type_id + saldo poin TERBARU member, dipakai buat validasi
-// eligibility promo (master_promo_type_members / min_point_amount). Query poin MIRROR PERSIS
-// account/balance_handler.go::Point() -- baris terbaru member_point_ledger, "0" kalau belum
-// pernah ada transaksi poin sama sekali (bukan error).
-func fetchMemberPromoContext(ctx context.Context, db *bun.DB, memberID int64) (int64, float64, error) {
-	memberTypeID, err := pricing.FetchMemberTypeID(ctx, db, memberID)
+// fetchMemberPromoContext: member_type_id + tier_level + saldo poin TERBARU member, dipakai
+// buat validasi eligibility promo (master_promo_type_members / master_promo_tier /
+// min_point_amount). Query poin MIRROR PERSIS account/balance_handler.go::Point() -- baris
+// terbaru member_point_ledger, "0" kalau belum pernah ada transaksi poin sama sekali (bukan
+// error).
+func fetchMemberPromoContext(ctx context.Context, db *bun.DB, memberID int64) (memberTypeID int64, tierLevel int, memberPoint float64, err error) {
+	memberTypeID, tierLevel, err = pricing.FetchMemberPromoAttrs(ctx, db, memberID)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 
 	var point string
@@ -481,12 +515,12 @@ func fetchMemberPromoContext(ctx context.Context, db *bun.DB, memberID int64) (i
 	`, memberID).Scan(ctx, &point)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return 0, 0, err
+			return 0, 0, 0, err
 		}
 		point = "0"
 	}
 
-	return memberTypeID, mustFloat(point), nil
+	return memberTypeID, tierLevel, mustFloat(point), nil
 }
 
 // resolveMenuRows: query 1x buat SEMUA menu_id yang diminta sekaligus (bukan per-item, biar

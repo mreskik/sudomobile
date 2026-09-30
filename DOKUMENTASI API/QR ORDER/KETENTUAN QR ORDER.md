@@ -123,11 +123,17 @@ gak ada yang perlu disiapin dari sekarang.
 - Harga/pajak/package: **reuse persis** resolusi member app (`sudomobile/backend/pricing`,
   `calculateOrder()`, DPP-first) — keputusan 2026-09-17, bukan implementasi baru. Payment method:
   filter yang sama (gateway-only, scope branch+visit purpose), spek [`GET PAYMENT METHOD LIST.md`](./ORDER/04%20GET%20PAYMENT%20METHOD%20LIST.md).
-- **Promo: BELUM ADA di QR Order v1** (keputusan 2026-09-17) — `use_promo_ids` ditolak kalau
-  dikirim (`promo belum didukung di QR Order`). Alasan: barrier member_type & min_point butuh
-  `member_id` (tamu gak punya), dan channel `master_promo_apply_to` belum punya nilai buat QR
-  (cuma `mobile_customer`/`pos`). Ditambah belakangan kalau perlu (butuh nilai channel baru + cabang
-  "tanpa member" di `pricing.ResolvePromo()`).
+- **Promo: DIBUKA buat promo PUBLIK (2026-09-30, REVISI dari keputusan 2026-09-17 "belum ada
+  sama sekali")** — `use_promo_ids` sekarang diterima, maksimal 1 elemen, diterusin apa adanya
+  ke `calculateOrder()` (fungsi yang SAMA dipakai member app, TANPA validasi/logic terpisah
+  khusus QR Order). Channel `mobile_customer` yang dipakai (bukan channel baru khusus QR) --
+  alasan kenapa channel gak perlu diperluas: barrier `flag_required_member`/`flag_all_type_members`/
+  `flag_all_tiers` yang nentuin kelayakannya, bukan channel. Karena tamu gak punya `member_id`
+  sama sekali: promo yang butuh identitas member (`flag_required_member=true`, ATAU
+  `flag_all_type_members=false`, ATAU `flag_all_tiers=false`) OTOMATIS ketolak. Lihat
+  [`05 CALCULATE.md`](./ORDER/05%20CALCULATE.md)/[`06 CREATE ORDER.md`](./ORDER/06%20CREATE%20ORDER.md)
+  buat detail alur, dan [`04.1 GET LIST PROMO.md`](./ORDER/04.1%20GET%20LIST%20PROMO.md) buat cara
+  nampilin promo publik yang eligible ke customer sebelum dipilih.
 
 ## Order & pembayaran
 
@@ -188,7 +194,7 @@ Diisi belakangan — yang udah pasti:
 | Identitas tenant/company/branch/visit purpose | `X-App-Setting` (company/brand) + `branch_id`/`visit_purpose_id` di path | 4 kode: `db_code` + `company_code` + `branch_code` + `visit_purpose_code`, wajib semua |
 | Login member | Token session (`Authorization: Bearer`) buat route protected | **Gak ada** — semua publik, customer = tamu (`order_name` wajib, `member_id` NULL) |
 | Akses order lama | Cek kepemilikan `member_id` | Cukup `order_number` (+ `order_source = 'qr'`, branch cocok) |
-| Promo | `use_promo_ids`, 14 barrier | **Belum ada** (v1), `use_promo_ids` ditolak |
+| Promo | `use_promo_ids`, semua barrier ([`KETENTUAN PROMO.md`](../MOBILE/ORDER/KETENTUAN%20PROMO.md)) | Sama fungsi (`calculateOrder()`), TAPI cuma promo PUBLIK yang lolos (`flag_required_member=false` DAN `flag_all_type_members=true` DAN `flag_all_tiers=true` — tamu gak punya `member_id`) — 2026-09-30 |
 | Tabel order | `mb_order*`, `order_source = 'mobile'` | `mb_order*` yang sama, `order_source = 'qr'` |
 | Pembayaran | QRIS via service `payment` | Sama persis |
 | `order_type` | hardcode `takeaway` | `[KONFIRMASI]` dari `kiosk_mode` visit purpose, fallback `dinein` |

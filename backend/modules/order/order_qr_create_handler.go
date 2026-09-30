@@ -16,9 +16,9 @@ import (
 
 // qrCreateOrderRequest: MIRIP createOrderRequest (member app) tapi TANPA branch_id/
 // visit_purpose_id (dari 4 kode di query, lewat qrorder.Resolve()) dan TANPA member_id (gak ada
-// login) -- order_name WAJIB (identitas tamu, gantiin member_id). use_promo_ids TETAP ada di
-// struct biar bisa DITOLAK eksplisit kalau diisi (bukan diem-diem diabaikan), belum didukung di
-// QR Order sama sekali (keputusan sesi 2026-09-17).
+// login) -- order_name WAJIB (identitas tamu, gantiin member_id). use_promo_ids REUSE
+// calculateOrder() apa adanya (2026-09-30, promo publik dibuka -- lihat catatan di Create() di
+// bawah, keputusan sesi 2026-09-17 "belum didukung" DIREVISI).
 //
 // order_name (BUKAN customer_name, migration sudocore2 211, 2026-09-17) -- disamain sama nama
 // kolom yang UDAH ADA di POS, tr_order.order_name, biar pas jalur pull mb_order -> tr_order
@@ -54,6 +54,7 @@ type QRHandler interface {
 	PaymentStatus(c fiber.Ctx) error
 	Calculate(c fiber.Ctx) error
 	GetDetail(c fiber.Ctx) error
+	GetListPromo(c fiber.Ctx) error
 }
 
 type qrHandler struct {
@@ -70,6 +71,14 @@ func NewQRHandler(db *bun.DB) QRHandler {
 // yang SAMA PERSIS, cuma header mb_order & identitas request yang beda (tamu vs member, 4 kode
 // vs token+X-App-Setting). Lihat DOKUMENTASI API/QR ORDER/CREATE ORDER.md & KETENTUAN QR
 // ORDER.md buat urutan validasi & alasan tiap keputusan.
+//
+// Promo publik dibuka (2026-09-30, REVISI dari keputusan 2026-09-17) -- use_promo_ids
+// diterusin APA ADANYA ke calculateOrder(). insertQROrder() TIDAK PERLU DIUBAH -- total_discount
+// (header) dan promo_id/discount_amount (per item, lewat insertOrderItems() yang REUSE) udah
+// otomatis kesimpen dari calcResult begitu diskon beneran diterapkan. member_id di mb_order
+// header TETAP NULL (QR Order emang gak pernah punya member) -- promo yang butuh identitas
+// member (FlagRequiredMember=true, ATAU flag_all_type_members=false, ATAU flag_all_tiers=false)
+// otomatis ketolak duluan di calculateOrder() karena memberID selalu 0 di sini.
 func (h *qrHandler) Create(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 	ctx := c.Context()
@@ -98,11 +107,6 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 	if body.PaymentMethodID == 0 {
 		return c.JSON(res.SetCode(100).SetMessage("payment_method_id wajib diisi"))
 	}
-	// Promo belum didukung sama sekali di QR Order (keputusan sesi 2026-09-17) -- DITOLAK
-	// eksplisit kalau diisi, bukan diem-diem diabaikan (client gak boleh ngira diskonnya kepake).
-	if len(body.UsePromoIDs) > 0 {
-		return c.JSON(res.SetCode(100).SetMessage("promo belum didukung di QR Order"))
-	}
 
 	// Barrier operasional -- SAMA PERSIS Create() member app (branch_handler.go/heartbeat.go),
 	// dicek SETELAH validasi body (fail-fast dulu buat kesalahan input yang murah dicek).
@@ -113,12 +117,13 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
 	}
 
-	// calculateOrder() BUTUH memberID cuma buat cabang promo (fetchMemberPromoContext) -- UsePromoIDs
-	// udah dipastikan kosong di atas, jadi cabang itu gak pernah kesentuh. memberID=0 aman.
+	// memberID selalu 0 (QR Order = tamu, gak ada login) -- calculateOrder() otomatis nolak
+	// promo yang butuh identitas member (lihat catatan Create() di atas).
 	calcReq := calculateRequest{
 		BranchID:       qrCtx.BranchID,
 		VisitPurposeID: qrCtx.VisitPurposeID,
 		Items:          body.Items,
+		UsePromoIDs:    body.UsePromoIDs,
 	}
 	calcResult, errMsg, err := calculateOrder(ctx, h.db, calcReq, 0)
 	if err != nil {

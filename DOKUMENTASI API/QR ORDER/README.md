@@ -6,7 +6,9 @@ member di [`../MOBILE/`](../MOBILE/README.md), tapi 1 backend & 1 DB yang sama.
 
 **Status (2026-09-18): SEMUA 8 endpoint SUDAH JALAN & tervalidasi live** (Create Order, Payment
 Status, Get Visit Purpose Detail, Get Payment Method List, Calculate, Order Detail, Get Branch
-List, Get Visit Purpose List).
+List, Get Visit Purpose List). **2026-09-30**: promo publik dibuka di Calculate/Create Order
+(REVISI, sebelumnya "belum ada"), + endpoint ke-9 baru **Get List Promo** — kode selesai,
+`go build`/`go vet` bersih, BELUM tervalidasi live.
 
 ## Daftar dokumen
 
@@ -21,6 +23,10 @@ List, Get Visit Purpose List).
     [`../MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`](../MOBILE/MENU/GET%20VISIT%20PURPOSE%20DETAIL.md)).
   - [`ORDER/GET PAYMENT METHOD LIST.md`](./ORDER/04%20GET%20PAYMENT%20METHOD%20LIST.md) — `GET /qr-order/payment-method?…`
     — **SELESAI & tervalidasi live (2026-09-17)**.
+  - [`ORDER/GET LIST PROMO.md`](./ORDER/04.1%20GET%20LIST%20PROMO.md) — `GET /qr-order/promo?…` —
+    **BARU (2026-09-30), BELUM tervalidasi live** — daftar promo publik (`flag_required_member=false`
+    doang) buat 1 branch+visit_purpose, versi QR Order dari
+    [`../MOBILE/ORDER/GET LIST PROMO.md`](../MOBILE/ORDER/GET%20LIST%20PROMO.md).
   - [`ORDER/05%20CALCULATE.md`](./ORDER/05%20CALCULATE.md) — `POST /qr-order/calculate?…` — **SELESAI & tervalidasi
     live (2026-09-17)** — preview harga keranjang, tanpa promo.
   - [`ORDER/CREATE ORDER.md`](./ORDER/06%20CREATE%20ORDER.md) — `POST /qr-order/create-order?…` — **SELESAI &
@@ -77,3 +83,13 @@ List, Get Visit Purpose List).
   di-refactor jadi 3 level resolve (`ResolveCompany`/`ResolveBranch`/`Resolve`, Go struct
   embedding) — endpoint LAMA gak ada yang berubah kodenya. **Delapan endpoint QR Order
   SELESAI.** Detail di riwayat `KETENTUAN QR ORDER.md`.
+- 2026-09-30 — **Promo publik DIBUKA** di Calculate/Create Order (REVISI dari keputusan
+  2026-09-17 "belum didukung sama sekali") — `use_promo_ids` diterusin apa adanya ke
+  `calculateOrder()`, `memberID` selalu `0` bikin promo yang butuh identitas member otomatis
+  ketolak, jadi cuma promo publik yang bisa lolos. Sekalian **endpoint ke-9 baru: Get List
+  Promo** (`GET /qr-order/promo`) — reuse `promo.BuildPromoList()` (di-export dari
+  `promo.GetList()` member app biar dipakai bareng, bukan duplikasi), filter tambahan buang
+  promo `flag_required_member=true`. Kode selesai, `go build`/`go vet` bersih, query eligibility
+  dites manual ke `db_sudocore_dev` — **belum tervalidasi live end-to-end** (hit endpoint
+  beneran). Detail di `ORDER/05 CALCULATE.md`, `ORDER/06 CREATE ORDER.md`,
+  `ORDER/04.1 GET LIST PROMO.md`, dan riwayat `KETENTUAN QR ORDER.md`.
