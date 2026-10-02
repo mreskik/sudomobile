@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -10,10 +11,12 @@ import (
 	"sudomobile/backend/heartbeat"
 	"sudomobile/backend/helpers"
 	"sudomobile/backend/middleware"
+	"sudomobile/backend/modules/auth"
 	"sudomobile/backend/modules/branch"
 	"sudomobile/backend/pricing"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
 )
 
@@ -30,6 +33,9 @@ type createOrderRequest struct {
 	// tetap member_id (kalau login), customer_name cuma pelengkap nama yang keisi ke
 	// mb_order.order_name yang sama (kolom bareng sama QR Order, lihat insertQROrder()).
 	CustomerName string `json:"customer_name"`
+	// Pin (2026-10-02): OPSIONAL buat payment method lain, tapi WAJIB & divalidasi kalau
+	// payment_method_id adalah WALLET_PAYMENT (motong saldo member, lihat barrier di Create()).
+	Pin string `json:"pin"`
 }
 
 type paymentInfo struct {
@@ -133,6 +139,61 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 
 	orderNumber := generateOrderNumber(branchCode)
+
+	// WALLET_PAYMENT (type_id=5, paymentmethod.WalletPaymentMethodTypeID) -- jalur TERPISAH
+	// TOTAL dari gateway (2026-10-01): settle INSTAN saat create (gak ada QR/polling), saldo
+	// kepotong LANGSUNG, order langsung 'paid'. Barrier wajib login + saldo cukup dicek di SINI
+	// (early-reject, di luar tx) -- re-check saldo final tetap dilakuin DI DALAM tx
+	// (insertWalletPaidOrder()) buat nutup celah race 2 request bersamaan.
+	if paymentMethod.IsWalletPayment() {
+		if memberID == 0 {
+			return c.JSON(res.SetCode(100).SetMessage("please login to use wallet payment"))
+		}
+
+		// Barrier PIN (2026-10-02): wajib & harus bener kalau WALLET_PAYMENT, karena motong saldo
+		// langsung. Dicek SEBELUM saldo (gagal di hal yang lebih murah dulu).
+		if body.Pin == "" {
+			return c.JSON(res.SetCode(100).SetMessage("pin is required for wallet payment"))
+		}
+		pinValid, err := auth.VerifyMemberPin(ctx, h.db, memberID, body.Pin)
+		if err != nil {
+			return c.JSON(res.SetCode(100).SetMessage("failed to verify pin"))
+		}
+		if !pinValid {
+			return c.JSON(res.SetCode(100).SetMessage("invalid pin"))
+		}
+
+		balance, err := getMemberBalance(ctx, h.db, memberID)
+		if err != nil {
+			return c.JSON(res.SetCode(100).SetMessage("failed to check wallet balance"))
+		}
+		totalBilling, err := decimal.NewFromString(calcResult.TotalBilling)
+		if err != nil {
+			return c.JSON(res.SetCode(100).SetMessage("failed to check wallet balance"))
+		}
+		if balance.LessThan(totalBilling) {
+			return c.JSON(res.SetCode(100).SetMessage("insufficient balance"))
+		}
+
+		paymentNumber := generatePaymentNumber(branchCode)
+		if err := insertWalletPaidOrder(ctx, h.db, orderNumber, paymentNumber, memberID, companyID, body, calcResult); err != nil {
+			if errors.Is(err, errInsufficientBalance) {
+				return c.JSON(res.SetCode(100).SetMessage("insufficient balance"))
+			}
+			return c.JSON(res.SetCode(100).SetMessage("failed to save order"))
+		}
+
+		return c.JSON(res.Success().SetData(createOrderResult{
+			OrderNumber:   orderNumber,
+			Status:        "paid",
+			SubTotal:      calcResult.SubTotal,
+			TotalTax:      calcResult.TotalTax,
+			TotalDiscount: calcResult.TotalDiscount,
+			TotalBilling:  calcResult.TotalBilling,
+			Items:         calcResult.Items,
+			Payment:       paymentInfo{Status: "paid"},
+		}))
+	}
 
 	if err := insertOrder(ctx, h.db, orderNumber, memberID, companyID, body, calcResult); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("gagal menyimpan order"))

@@ -80,10 +80,15 @@ func RegisterRoutes(app *fiber.App) {
 	root.Get("/branch/:branch_id/visit-purpose", visitPurposeHandler.GetList)
 	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id", visitPurposeHandler.GetDetail)
 
-	// PUBLIK -- daftar payment method yang bisa dipakai buat 1 branch+visit_purpose (gateway-only,
-	// konfirmasi 2026-08-24). Nested di bawah visit-purpose karena scoping-nya sama.
+	// PUBLIK, Authorization OPSIONAL (middleware.OptionalAuth, 2026-10-01) -- daftar payment
+	// method yang bisa dipakai buat 1 branch+visit_purpose (gateway-only, konfirmasi 2026-08-24).
+	// Nested di bawah visit-purpose karena scoping-nya sama. OptionalAuth dipasang KHUSUS buat
+	// WALLET_PAYMENT (type_id=5) -- kalau token dikirim & valid, item itu dapat member_name+saldo
+	// (wallet_information), kalau enggak (gak ada token / invalid / expired) dapat "need login".
+	// Payment method lain gak kepengaruh middleware ini sama sekali. Lihat enrichWalletInfo()
+	// (paymentmethod_handler.go).
 	paymentMethodHandler := paymentmethod.NewHandler(config.DB)
-	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id/payment-method", paymentMethodHandler.GetList)
+	root.Get("/branch/:branch_id/visit-purpose/:visit_purpose_id/payment-method", middleware.OptionalAuth(config.DB), paymentMethodHandler.GetList)
 
 	// PUBLIK -- best seller, sumber data mb_order/mb_order_detail DOANG (bukan gabung POS,
 	// 2026-08-25 konfirmasi eksplisit), 30 hari terakhir, cuma order status='paid'. 3 endpoint

@@ -10,7 +10,7 @@ Kalau login (ada token valid), order tersimpan dengan `member_id` terisi (muncul
 
 **Bug fix (2026-09-23)**: sejak digeser jadi publik (2026-09-22), grup route `/order/*` sempat KEHILANGAN middleware auth sama sekali (`middleware.Auth` dicopot karena sifatnya hard-reject, gak cocok buat publik, tapi gak ada pengganti yang dipasang) — akibatnya `middleware.MemberID(c)` SELALU balik `0` walau client kirim token valid, jadi `mb_order.member_id` SELALU `NULL` (bahkan pas login). Fix: middleware baru `middleware.OptionalAuth` (`backend/middleware/auth.go`) dipasang ke `orderPublicRouter` (`backend/router.go`) — resolve token KALAU ADA & valid (isi `member_id` ke locals sama kayak `Auth`), tapi gak nolak request kalau token kosong/invalid/expired (beda dari `Auth` yang hard-reject). Sekarang login beneran ngaruh: `member_id` valid → `mb_order.member_id` kesimpen (bukan `NULL`, bukan juga literal `0` — tetap lewat konversi pointer `*int64` yang udah ada di `insertOrder()`).
 
-Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_method_id`/`customer_phone_number`/`customer_name` — logic resolve harga/pajak/promo dipakai ULANG persis (fungsi `calculateOrder()` yang sama), jadi breakdown yang tampil pas preview keranjang GAK PERNAH beda sama yang beneran kesimpen/ke-charge.
+Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_method_id`/`customer_phone_number`/`customer_name`/`pin` — logic resolve harga/pajak/promo dipakai ULANG persis (fungsi `calculateOrder()` yang sama), jadi breakdown yang tampil pas preview keranjang GAK PERNAH beda sama yang beneran kesimpen/ke-charge.
 
 ## Request
 
@@ -21,6 +21,7 @@ Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_meth
   "payment_method_id": 1,
   "customer_phone_number": "081234567890",
   "customer_name": "Budi Santoso",
+  "pin": "123456",
   "use_promo_ids": [23],
   "items": [
     {
@@ -42,6 +43,7 @@ Body **SAMA PERSIS** kayak [`CALCULATE.md`](CALCULATE.md) DITAMBAH `payment_meth
 - `payment_method_id` — **wajib**, harus lolos filter yang sama kayak [`GET PAYMENT METHOD LIST.md`](../MENU/GET%20PAYMENT%20METHOD%20LIST.md) (gateway-only, scoped branch+visit_purpose).
 - `customer_phone_number` — opsional.
 - `customer_name` — **BARU 2026-09-23, opsional**. Keisi ke `mb_order.order_name` (kolom sama yang dipakai [QR Order](../../QR%20ORDER/KETENTUAN%20QR%20ORDER.md), di situ wajib karena satu-satunya identitas tamu). Di member app ini cuma pelengkap — identitas utama tetap `member_id` dari token kalau login. Kosong/gak dikirim → `order_name` disimpan `NULL`. Ikut dibalikin di response [`ORDER DETAIL.md`](ORDER%20DETAIL.md) sebagai `customer_name`.
+- `pin` — **BARU 2026-10-02, OPSIONAL untuk payment method lain, TAPI WAJIB & divalidasi kalau `payment_method_id` resolve ke WALLET_PAYMENT** (lihat section di bawah). PIN 6 digit member yang sama dengan [`PIN CREATE.md`](../AUTH/PIN%20CREATE.md)/[`LOGIN PIN.md`](../AUTH/LOGIN%20PIN.md).
 
 ## Response
 
@@ -107,6 +109,59 @@ Kalau salah satu promo di `use_promo_ids` punya `master_promo.min_point_amount >
 Promo bersyarat poin **wajib login** (`member_id` bukan `NULL`) — konsekuensinya, promo apa pun yang `min_point_amount > 0` WAJIB juga `flag_required_member = true` (ditegakkan keras di sisi admin, lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #6c), jadi barrier #6c yang bakal nolak duluan kalau gak login. Diperkuat lagi eksplisit di `redeemMemberPoint()` (`insertOrder()` return error kalau `memberIDParam == nil` padahal `point_redeem_amount > 0` — harusnya gak pernah kejadian normal karena barrier #6c udah cegah duluan, murni pengaman tambahan).
 
 **Refund**: kalau order ini nantinya `expired` (lihat [`PAYMENT STATUS.md`](PAYMENT%20STATUS.md)) atau di-`cancel` (lihat [`CANCEL ORDER.md`](CANCEL%20ORDER.md)) sebelum sempat `paid`, poin yang terpotong di titik `create` ini **dikembalikan otomatis** (insert baris baru `transaction_type = 'redeem_reversal'`, bukan edit/hapus baris lama).
+
+## WALLET_PAYMENT — bayar pakai saldo member (2026-10-01)
+
+`payment_method_id` yang resolve ke `master_payment_method.payment_method_type_id = 5` (`WALLET_PAYMENT`, lihat [`GET PAYMENT METHOD LIST.md`](../MENU/GET%20PAYMENT%20METHOD%20LIST.md)) jalan lewat **jalur TERPISAH TOTAL** dari payment gateway — settle **INSTAN** saat `Create()` ini dipanggil, bukan nunggu QR di-scan/polling.
+
+**Beda dari jalur gateway (QRIS dkk):**
+
+- Order langsung `status: "paid"` di response (bukan `"pending"`) — `payment_number` sudah terisi SAAT ITU JUGA (beda dari gateway yang `payment_number` baru muncul belakangan pas `finalizeSettledPayment()`).
+- `mb_order_payment` langsung di-insert di titik ini juga (bukan nunggu settlement) — kolom `deduct_member_id` (migration sudocore2 241) diisi `member_id` yang saldonya dipotong.
+- Saldo (`member_balance_ledger`) langsung dipotong — baris baru `transaction_type='payment'`, `source='mobile'`, `reference_number=order_number`.
+- `requestPaymentForOrder()`/`mb_order_payment_request` **SAMA SEKALI TIDAK dipanggil/diisi** untuk jalur ini — tidak relevan, tidak ada apa pun yang perlu di-polling.
+- `pg_notify('mb_order_paid', ...)` tetap dipanggil (di dalam transaksi yang sama) — POS tetap langsung tahu ada order baru lewat jalur pull yang sama seperti order gateway.
+
+**Barrier khusus** (dicek SEBELUM proses, SETELAH `calculateOrder()`/`ResolvePaymentMethod()` normal):
+
+1. **Wajib login** — `member_id` kosong (gak ada token / token invalid/expired) → `"please login to use wallet payment"`. Guest/QR Order tidak bisa pakai WALLET_PAYMENT sama sekali (sejalan dengan [`GET PAYMENT METHOD LIST.md`](../MENU/GET%20PAYMENT%20METHOD%20LIST.md) yang juga selalu `need login` di situasi yang sama).
+2. **PIN wajib & benar (BARU 2026-10-02)** — dicek SETELAH login, SEBELUM saldo (gagal di hal yang lebih murah dulu). `pin` kosong → `"pin is required for wallet payment"`. Diisi tapi salah (atau member belum pernah bikin PIN sama sekali) → `"invalid pin"`. Verifikasi lewat `auth.VerifyMemberPin()` (fungsi baru di package `auth`, di-export khusus biar dipakai lintas package tanpa expose primitif `hashPin`/`comparePin` yang sengaja tetap private) — cek `mobile_member_pin.pin_hash` milik `member_id` yang sama dengan token, BUKAN dari body.
+3. **Saldo cukup** — saldo (`member_balance_ledger.balance_after` terbaru) dibandingkan ke `total_billing`. Kurang → `"insufficient balance"`. Dicek **DUA KALI**: sekali di luar transaksi (early-reject, UX cepat) dan sekali lagi **DI DALAM transaksi** `insertWalletPaidOrder()` (re-check final) — beda dari barrier poin (`min_point_amount`) yang sengaja TIDAK re-check & boleh jadi minus kalau race. Saldo ini duit beneran, race 2 request bersamaan (2 device/klik ganda) yang lolos early-reject yang sama **WAJIB** tetap ketangkep di re-check final → kalau gagal, **SELURUH transaksi di-ROLLBACK** (order batal total, bukan cuma payment-nya gagal).
+
+**Jurnal akuntansi (GL/COA)**: TIDAK ada kode jurnal baru ditulis di sudomobile untuk ini. `member_balance_ledger.transaction_type='payment'` otomatis "dianggap selesai" oleh job `memberbalancejurnal.RunOnce()` (sudocore2) — baris `'payment'` di situ diasumsikan jurnalnya sudah ikut proses endday POS (mirror payment method lain), **asalkan** payment method WALLET_PAYMENT di-setting `coa_accout_id` ke akun yang sama dengan `2.1.07.01 MEMBER WALLET PAYABLE` (setup data master, bukan kode).
+
+**Poin + saldo bisa dipakai bersamaan** — `point_redeem_amount` (lihat section di atas) tetap diproses independen kalau order ini juga pakai promo bersyarat poin.
+
+Response sukses (contoh):
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "order_number": "NOTB2026100114004493",
+    "status": "paid",
+    "sub_total": "20000.00",
+    "total_tax": "0.00",
+    "total_discount": "0.00",
+    "total_billing": "20000.00",
+    "items": [ /* sama struktur kayak CALCULATE.md */ ],
+    "payment": {
+      "status": "paid",
+      "vendor_qr_string": null,
+      "vendor_qr_url": null,
+      "expired_at": null,
+      "failure_reason": null
+    }
+  }
+}
+```
+
+**Tervalidasi live (2026-10-01)**: `branch_id=14`/`visit_purpose_id=1`, `payment_method_id=64` (WALLET BALANCE, dev). Guest → `"please login to use wallet payment"`. Token invalid → pesan sama (guest & token invalid tidak dibedakan). Login + saldo cukup → sukses, dicek langsung ke Postgres: `mb_order.status='paid'` + `payment_number` terisi, `mb_order_payment.deduct_member_id` cocok `member_id`, `member_balance_ledger` baris baru `balance_out`/`balance_after` cocok hitungan manual. Login + saldo kurang (order sengaja dibikin gede) → `"insufficient balance"`, dicek tidak ada baris `mb_order` nyangkut sama sekali (rollback bersih). Payment method lain (QRIS) dites bareng, jalur gateway lama tidak ada regresi.
+
+**Tervalidasi live barrier PIN (2026-10-02)**: member id 23 (saldo besar, sudah punya PIN), `branch_id=14`/`visit_purpose_id=1`/`payment_method_id=64`. Tanpa `pin` → `"pin is required for wallet payment"`. `pin` salah (`999999`) → `"invalid pin"`. `pin` benar → sukses (`mb_order.status='paid'`, tersimpan benar di Postgres). Semua data test dibersihkan setelah verifikasi.
+
+Implementasi: `sudomobile/backend/modules/order/order_wallet_payment.go` (`getMemberBalance()`, `insertWalletPaidOrder()`), `sudomobile/backend/modules/order/order_create_handler.go` (percabangan di `Create()`, barrier PIN), `sudomobile/backend/pricing/paymentmethod.go` (`PaymentMethod.IsWalletPayment()`), `sudomobile/backend/modules/auth/generators.go` (`VerifyMemberPin()`, BARU 2026-10-02). Saldo pakai `github.com/shopspring/decimal` (bukan `float64`) — perbandingan nominal uang tidak boleh kena floating-point rounding error.
 
 ## Validasi
 

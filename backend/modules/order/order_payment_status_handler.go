@@ -9,6 +9,7 @@ import (
 	"sudomobile/backend/helpers"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
 )
 
@@ -171,15 +172,27 @@ func finalizeSettledPayment(ctx context.Context, db *bun.DB, orderNumber, paymen
 			return err
 		}
 
+		// deduct_member_id (migration sudocore2 241, 2026-10-01) -- kolom SUDAH ADA di
+		// mb_order_payment, SENGAJA belum diisi di sini (tetap NULL default) -- logic "kapan dan
+		// dari mana nilainya" (wallet payment method) belum digarap, nyusul terpisah.
+		amountDecimal, err := decimal.NewFromString(amount)
+		if err != nil {
+			return err
+		}
+		mdrAmount, err := calculateMdrAmount(ctx, tx, paymentMethodID, amountDecimal)
+		if err != nil {
+			return err
+		}
+
 		if _, err := tx.NewRaw(`
-			INSERT INTO mb_order_payment (ulid, payment_number, payment_method_id, payment_amount, payment_gateway_order_id)
-			VALUES (?, ?, ?, ?, ?)
-		`, generateULID(), paymentNumber, paymentMethodID, amount, paymentGatewayOrderID).Exec(ctx); err != nil {
+			INSERT INTO mb_order_payment (ulid, payment_number, payment_method_id, payment_amount, payment_gateway_order_id, mdr_amount)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, generateULID(), paymentNumber, paymentMethodID, amount, paymentGatewayOrderID, mdrAmount.StringFixed(2)).Exec(ctx); err != nil {
 			return err
 		}
 
 		payload := fmt.Sprintf("%d:%s", branchID, orderNumber)
-		_, err := tx.NewRaw(`SELECT pg_notify('mb_order_paid', ?)`, payload).Exec(ctx)
+		_, err = tx.NewRaw(`SELECT pg_notify('mb_order_paid', ?)`, payload).Exec(ctx)
 		return err
 	})
 }

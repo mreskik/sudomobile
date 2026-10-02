@@ -3,7 +3,9 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"regexp"
@@ -89,4 +91,19 @@ func hashPin(pin string) (string, error) {
 // keduanya, disamain jadi bool doang di sini biar pemanggil gak perlu bedain).
 func comparePin(pin, hash string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(pin)) == nil
+}
+
+// VerifyMemberPin (2026-10-02): dipakai LINTAS PACKAGE (mis. order, buat barrier WALLET_PAYMENT)
+// yang butuh validasi PIN tanpa expose primitif hashPin/comparePin (keduanya sengaja gak exported).
+// Balikin (false, nil) kalau member belum pernah bikin PIN -- pemanggil yang nentuin pesan error-nya.
+func VerifyMemberPin(ctx context.Context, db bun.IDB, memberID int64, pin string) (bool, error) {
+	var rec MobileMemberPin
+	err := db.NewSelect().Model(&rec).Where("member_id = ?", memberID).Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return comparePin(pin, rec.PinHash), nil
 }

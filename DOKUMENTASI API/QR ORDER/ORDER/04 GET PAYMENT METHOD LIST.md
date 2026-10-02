@@ -28,12 +28,19 @@ Gak ada body.
   "code": 0,
   "message": "success",
   "data": [
-    { "id": 1, "name": "QRIS", "code": "QRA", "color_theme": "feaw" }
+    {
+      "id": 1,
+      "name": "QRIS",
+      "code": "QRA",
+      "color_theme": "feaw",
+      "payment_type_id": 2,
+      "payment_type_name": "CARD"
+    }
   ]
 }
 ```
 
-Sama persis versi member app. Kombinasi yang gak punya payment method cocok → `data: []`, bukan
+Sama persis versi member app — termasuk `payment_type_id`/`payment_type_name` (**BARU 2026-10-02**, lihat [`../../MOBILE/MENU/GET PAYMENT METHOD LIST.md`](../../MOBILE/MENU/GET%20PAYMENT%20METHOD%20LIST.md) buat detail lengkap) dan rename `wallet_information.saldo` → `wallet_information.balance` buat item WALLET_PAYMENT — **reuse fungsi yang sama 100%** (`resolvePaymentMethodList()`+`enrichWalletInfo()`), jadi perubahan di member app otomatis ikut di sini tanpa kode terpisah. Kombinasi yang gak punya payment method cocok → `data: []`, bukan
 error. `id`-nya yang dikirim balik sebagai `payment_method_id` di
 [`CREATE ORDER.md`](./06%20CREATE%20ORDER.md).
 

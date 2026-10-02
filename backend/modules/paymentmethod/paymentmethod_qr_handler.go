@@ -45,5 +45,10 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
 	}
 
+	// QR Order gak pernah ada konsep login member (publik total, auth-nya db_code/company_code/
+	// branch_code di query) -- memberID 0 SELALU, WALLET_PAYMENT otomatis selalu need login.
+	// Lihat enrichWalletInfo() di paymentmethod_handler.go.
+	enrichWalletInfo(ctx, h.db, list, 0)
+
 	return c.JSON(res.Success().SetData(list))
 }
