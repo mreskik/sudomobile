@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"sudomobile/backend/modules/paymentmethod"
+
 	"github.com/shopspring/decimal"
 	"github.com/uptrace/bun"
 )
@@ -25,14 +27,25 @@ func generateTopupReference(branchCode string) string {
 // (master_payment_method) -- gak pernah dipercaya dari client langsung, sama pola
 // APIANDORDER.resolvePaymentGatewayCode() (Kiosk/POS, diperbaiki bareng 2026-09-22). Balikin
 // (_, "pesan", nil) buat kondisi bisnis (gak ketemu/gak didukung), (_, "", err) buat error DB.
+//
+// Barrier WALLET_PAYMENT (2026-10-02): payment_method_id yang resolve ke
+// paymentmethod.WalletPaymentMethodTypeID (5) DITOLAK EKSPLISIT di sini -- top-up tujuannya
+// NAMBAH saldo, gak masuk akal dibayar PAKAI saldo yang sama (lingkaran, net efek nol/berpotensi
+// disalahgunakan). WALLET_PAYMENT tetap muncul di daftar payment method top-up (endpoint-nya
+// REUSE GET PAYMENT METHOD LIST.md yang sengaja melonggarkan filter buat WALLET_PAYMENT, lihat
+// dokumen itu) -- barrier ini nutup gap-nya KHUSUS di titik Create top-up.
 func resolvePaymentGatewayCode(ctx context.Context, db *bun.DB, paymentMethodID int64) (string, string, error) {
 	var code sql.NullString
-	err := db.NewRaw(`SELECT payment_gateway_code FROM master_payment_method WHERE id = ?`, paymentMethodID).Scan(ctx, &code)
+	var typeID sql.NullInt64
+	err := db.NewRaw(`SELECT payment_gateway_code, payment_method_type_id FROM master_payment_method WHERE id = ?`, paymentMethodID).Scan(ctx, &code, &typeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", "payment method tidak ditemukan", nil
 		}
 		return "", "", err
+	}
+	if typeID.Valid && typeID.Int64 == paymentmethod.WalletPaymentMethodTypeID {
+		return "", "wallet balance cannot be used to top up itself", nil
 	}
 	if !code.Valid || code.String == "" {
 		return "", "payment method tidak didukung", nil
