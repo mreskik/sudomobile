@@ -1,8 +1,13 @@
 package account
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
+	"io"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -14,11 +19,19 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/google/uuid"
+	"golang.org/x/image/draw"
 )
 
 const (
 	maxPhotoSize   = 2 * 1024 * 1024 // 2MB -- sama persis konvensi maxImageSize di sudocore2 (backend/modules/upload/upload_service.go)
 	maxPhotoPerDay = 3
+
+	// photoMaxDimension/photoReduceQuality (2026-10-06) -- reduce otomatis foto profil, SAMA
+	// PERSIS konvensi upload_service.go sudocore2 (duplikat kode, bukan shared package -- beda
+	// repo Go, gak bisa saling import): resize sisi terpanjang ke max 1920px + re-encode JPEG
+	// kualitas 70%. GIF di-SKIP total (animasi), PNG TETAP PNG (transparansi dijaga).
+	photoMaxDimension  = 1920
+	photoReduceQuality = 70
 )
 
 // photoStorageRoot: subfolder tempat foto profil disimpen, RELATIF ke config.StoragePath --
@@ -157,9 +170,39 @@ func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {
 		return "", err
 	}
 
-	filename := id.String() + ext
+	src, err := fh.Open()
+	if err != nil {
+		return "", err
+	}
+	defer src.Close()
+
+	// GIF di-skip dari reduce -- disimpan apa adanya biar animasi (kalau ada) gak rusak, sama
+	// persis sudocore2.
+	if ext == ".gif" {
+		filename := id.String() + ext
+		dest := filepath.Join(root, filename)
+		if err := c.SaveFile(fh, dest); err != nil {
+			return "", err
+		}
+		return "/storage/uploads/images/" + filename, nil
+	}
+
+	reduced, outExt, err := reduceImage(src, ext)
+	if err != nil {
+		// gagal decode/proses (file corrupt, atau WebP -- Go standard library gak punya decoder
+		// WebP bawaan) -- fallback SIMPAN APA ADANYA, upload TETAP diterima. Reduce itu optimasi,
+		// bukan syarat upload foto valid.
+		filename := id.String() + ext
+		dest := filepath.Join(root, filename)
+		if err := c.SaveFile(fh, dest); err != nil {
+			return "", err
+		}
+		return "/storage/uploads/images/" + filename, nil
+	}
+
+	filename := id.String() + outExt
 	dest := filepath.Join(root, filename)
-	if err := c.SaveFile(fh, dest); err != nil {
+	if err := os.WriteFile(dest, reduced, 0644); err != nil {
 		return "", err
 	}
 
@@ -169,4 +212,47 @@ func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {
 	// peduli StoragePath fisiknya di mana. Kalau ikutan filepath.ToSlash(dest), path
 	// "../sudocore2/storage/..." bakal bocor jadi URL yang salah.
 	return "/storage/uploads/images/" + filename, nil
+}
+
+// reduceImage: SAMA PERSIS logic reduceImage() di sudocore2 (backend/modules/upload/upload_service.go)
+// -- resize (kalau sisi terpanjang > photoMaxDimension) + re-encode ulang (photoReduceQuality
+// buat JPEG, PNG tetap lossless tapi ikut di-resize). Duplikat kode (bukan shared package, beda
+// repo Go). Gambar yang UDAH <= batas TETEP di-re-encode ulang (bukan diambil apa adanya) --
+// konsisten semua foto lewat proses yang sama.
+func reduceImage(r io.Reader, ext string) (data []byte, outExt string, err error) {
+	src, format, err := image.Decode(r)
+	if err != nil {
+		return nil, "", fmt.Errorf("gagal decode gambar: %w", err)
+	}
+
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	longestSide := width
+	if height > longestSide {
+		longestSide = height
+	}
+
+	resized := src
+	if longestSide > photoMaxDimension {
+		scale := float64(photoMaxDimension) / float64(longestSide)
+		newWidth := int(float64(width) * scale)
+		newHeight := int(float64(height) * scale)
+		dst := image.NewRGBA(image.Rect(0, 0, newWidth, newHeight))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), src, bounds, draw.Over, nil)
+		resized = dst
+	}
+
+	var buf bytes.Buffer
+	switch format {
+	case "png":
+		if err := png.Encode(&buf, resized); err != nil {
+			return nil, "", fmt.Errorf("gagal encode PNG: %w", err)
+		}
+		return buf.Bytes(), ".png", nil
+	default:
+		if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: photoReduceQuality}); err != nil {
+			return nil, "", fmt.Errorf("gagal encode JPEG: %w", err)
+		}
+		return buf.Bytes(), ".jpg", nil
+	}
 }
