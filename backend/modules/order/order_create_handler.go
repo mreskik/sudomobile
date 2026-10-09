@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	"sudomobile/backend/heartbeat"
 	"sudomobile/backend/helpers"
@@ -114,6 +115,22 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 	if !heartbeat.IsOnline(ctx, h.db, body.BranchID) {
 		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
+	}
+
+	// Barrier sold out (2026-10-09) -- CUMA di Create(), BUKAN di Calculate() (lihat komentar
+	// checkSoldOutItems()). item_ids yang dicek = SEMUA item_conv id yang diminta client
+	// (body.Items[].MenuID), termasuk yang dari package/sub-item -- TAPI sold out cuma berlaku
+	// level item UTAMA (bukan sub-item package, lihat migration 264/keputusan sesi).
+	menuIDsForSoldOutCheck := make([]int64, 0, len(body.Items))
+	for _, item := range body.Items {
+		menuIDsForSoldOutCheck = append(menuIDsForSoldOutCheck, item.MenuID)
+	}
+	soldOutNames, err := checkSoldOutItems(ctx, h.db, int64(body.BranchID), menuIDsForSoldOutCheck)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal cek status sold out"))
+	}
+	if len(soldOutNames) > 0 {
+		return c.JSON(res.SetCode(100).SetMessage("item berikut sedang sold out: " + strings.Join(soldOutNames, ", ")))
 	}
 
 	calcResult, errMsg, err := calculateOrder(ctx, h.db, body.calculateRequest, memberID)

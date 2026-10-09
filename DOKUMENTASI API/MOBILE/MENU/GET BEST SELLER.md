@@ -10,6 +10,12 @@ GET /api/branch/:branch_id/visit-purpose/:visit_purpose_id/best-seller
 
 **PUBLIK** (gak butuh `Authorization`) — info agregat, gak nempel ke member manapun.
 
+## ⚠️ `GET /api/menu/best-seller` SEMENTARA DINONAKTIFKAN (2026-10-09)
+
+Diminta eksplisit — **CUMA** endpoint global ini, 2 endpoint lain (`by branch` & `by branch+visit_purpose`) **TETAP JALAN NORMAL**, tidak terpengaruh.
+
+Sekarang selalu balikin `{ "code": 0, "message": "success", "data": [] }` (array kosong), **tanpa query ke database sama sekali** — bukan error, cuma selalu kosong. Logic asli **TIDAK dihapus**, cuma dikomentar di `GetGlobal()` (`sudomobile/backend/modules/bestseller/bestseller_handler.go`) — tinggal un-comment lagi kalau mau diaktifkan ulang.
+
 ## Sumber data & aturan (sama buat ketiganya)
 
 - **`mb_order`/`mb_order_detail` DOANG** (2026-08-25, konfirmasi eksplisit) — **BUKAN** gabung sama `pos_order_detail`. Konsisten sama keputusan scope promo sebelumnya ([`KETENTUAN PROMO.md`](../ORDER/KETENTUAN%20PROMO.md), "scope pemakaian promo terpisah dari POS") — best seller di sini nunjukin popularitas **DI MOBILE APP**, bukan gabungan semua channel.

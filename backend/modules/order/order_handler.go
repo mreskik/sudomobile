@@ -554,3 +554,35 @@ func resolveMenuRows(ctx context.Context, db *bun.DB, menuTemplateID int64, item
 	}
 	return result, nil
 }
+
+// checkSoldOutItems: guard BARU (2026-10-09) -- dipanggil CUMA di CreateOrder (member app +
+// QR Order), SENGAJA TIDAK ditaruh di calculateOrder() (fungsi bersama Calculate+Create) biar
+// Calculate (preview keranjang) tetap bisa dipakai lihat harga meski ada item sold out, guard
+// beneran cuma pas submit order.
+//
+// itemIDs di sini = item_conv id (item_conversion_detail_id, SAMA kayak parameter
+// resolveMenuRows() -- dari request client, body.Items[].MenuID), BUKAN master_item_id --
+// makanya perlu JOIN micd dulu buat nyampe ke master_item_sold_out.item_id (yang nyimpen
+// master_item.id, item FISIK, lihat migration 264 sudocore2).
+//
+// Balikin daftar NAMA item yang sold out (bukan cuma bool) -- biar pesan error ke customer
+// jelas item mana yang dimaksud, bukan cuma "ada yang sold out" generik.
+func checkSoldOutItems(ctx context.Context, db *bun.DB, branchID int64, itemIDs []int64) ([]string, error) {
+	if len(itemIDs) == 0 {
+		return nil, nil
+	}
+
+	names := []string{}
+	err := db.NewRaw(`
+		SELECT DISTINCT mi.item_name
+		FROM master_item_conversion_detail micd
+		JOIN master_item mi ON mi.id = micd.item_id
+		JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id
+		WHERE micd.id IN (?)
+		ORDER BY mi.item_name ASC
+	`, branchID, bun.In(itemIDs)).Scan(ctx, &names)
+	if err != nil {
+		return nil, err
+	}
+	return names, nil
+}

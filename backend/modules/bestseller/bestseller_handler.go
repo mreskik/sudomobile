@@ -58,33 +58,41 @@ type bestSellerItemBase struct {
 
 // GetGlobal: GET /api/menu/best-seller -- semua branch & visit_purpose digabung, 30 hari
 // terakhir. PUBLIK (info agregat, gak nempel ke member manapun).
+//
+// SEMENTARA DINONAKTIFKAN (2026-10-09, diminta eksplisit) -- selalu balikin data: [] (array
+// kosong), TANPA query DB sama sekali. Logic asli di bawah SENGAJA dibiarkan (dikomentar, BUKAN
+// dihapus) biar gampang diaktifkan lagi nanti -- tinggal un-comment blok di bawah & hapus
+// `return c.JSON(res.Success().SetData([]bestSellerItemBase{}))` ini.
 func (h *handler) GetGlobal(c fiber.Ctx) error {
 	res := helpers.NewResponse()
-	limit := parseLimit(c)
+	return c.JSON(res.Success().SetData([]bestSellerItemBase{}))
 
-	// menu_id (mb_order_detail) itu item_conversion_detail_id (2026-09-21, dibenerin) --
-	// resolve nama/gambar item HARUS lewat master_item_conversion_detail dulu, BUKAN JOIN
-	// langsung mi.id = mod.menu_id (yang cuma benar buat data lama sebelum fix ini, order
-	// baru bakal salah resolve kalau tetap JOIN langsung). Order lama (sebelum fix) memang
-	// bakal salah/gak ketemu di sini -- disengaja, gak dimigrasi (lihat catatan project).
-	list := []bestSellerItemBase{}
-	err := h.db.NewRaw(`
-		SELECT mod.menu_id, mi.item_name, mi.image AS image_src, mi.icon_src,
-			SUM(mod.qty) AS total_qty, COUNT(DISTINCT mod.order_number) AS total_orders
-		FROM mb_order_detail mod
-		JOIN mb_order mo ON mo.order_number = mod.order_number
-		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
-		LEFT JOIN master_item mi ON mi.id = micd.item_id
-		WHERE mo.status = 'paid' AND mo.created_at >= now() - interval '30 days'
-		GROUP BY mod.menu_id, mi.item_name, mi.image, mi.icon_src
-		ORDER BY total_qty DESC
-		LIMIT ?
-	`, limit).Scan(c.Context(), &list)
-	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data best seller"))
-	}
-
-	return c.JSON(res.Success().SetData(list))
+	// --- LOGIC ASLI (nonaktif sementara, lihat komentar di atas) ---
+	// limit := parseLimit(c)
+	//
+	// // menu_id (mb_order_detail) itu item_conversion_detail_id (2026-09-21, dibenerin) --
+	// // resolve nama/gambar item HARUS lewat master_item_conversion_detail dulu, BUKAN JOIN
+	// // langsung mi.id = mod.menu_id (yang cuma benar buat data lama sebelum fix ini, order
+	// // baru bakal salah resolve kalau tetap JOIN langsung). Order lama (sebelum fix) memang
+	// // bakal salah/gak ketemu di sini -- disengaja, gak dimigrasi (lihat catatan project).
+	// list := []bestSellerItemBase{}
+	// err := h.db.NewRaw(`
+	// 	SELECT mod.menu_id, mi.item_name, mi.image AS image_src, mi.icon_src,
+	// 		SUM(mod.qty) AS total_qty, COUNT(DISTINCT mod.order_number) AS total_orders
+	// 	FROM mb_order_detail mod
+	// 	JOIN mb_order mo ON mo.order_number = mod.order_number
+	// 	LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
+	// 	LEFT JOIN master_item mi ON mi.id = micd.item_id
+	// 	WHERE mo.status = 'paid' AND mo.created_at >= now() - interval '30 days'
+	// 	GROUP BY mod.menu_id, mi.item_name, mi.image, mi.icon_src
+	// 	ORDER BY total_qty DESC
+	// 	LIMIT ?
+	// `, limit).Scan(c.Context(), &list)
+	// if err != nil {
+	// 	return c.JSON(res.SetCode(100).SetMessage("gagal ambil data best seller"))
+	// }
+	//
+	// return c.JSON(res.Success().SetData(list))
 }
 
 // GetByBranch: GET /api/branch/:branch_id/best-seller -- di-scope ke 1 branch.

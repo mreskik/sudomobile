@@ -52,6 +52,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
                 "tax_id": 12,
                 "tax_rate": "10.00",
                 "notes_menu": ["Tambah level pedas 1 tingkat", "Sugar free"],
+                "sold_out": false,
                 "package_list": [
                   {
                     "package_id": 18,
@@ -103,6 +104,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
 - `price` — **masih harga mentah** dari `master_pricelist_detail.price`, **belum** dihitung inclusive/exclusive-nya (itu tanggung jawab sisi konsumen/cart nanti, pakai `flag_inclusive_tax`+`tax_rate` di atas -- endpoint ini cuma nyediain bahan mentahnya, gak ngitung `dpp`/`net_dpp`/`total`).
 - `package_list` — array **kosong `[]`** kalau item-nya emang gak punya package (mayoritas item). Item yang punya package (customer wajib/boleh milih sub-item dari 1+ grup, misal grup "VARIAN" pilih 1 dari beberapa varian rasa) bakal keisi.
 - `notes_menu` (2026-09-25) — array string catatan siap-pilih (mis. "Extra Pedas", "Sugar free") dari `master_notes_menu_detail.full_notes` yang `master_notes_menu` induknya match ke `category_id`/`subcategory_id` item ini (lihat "Update (2026-09-25)" di bawah). **SELALU `full_notes`** (bukan `short_notes`) — beda dari versi POS yang punya 2 varian tergantung channel (`short_notes` buat kasir, `full_notes` buat kiosk); di sini cuma ada 1 kebutuhan (informasi ditampilin ke customer). Array kosong `[]` kalau gak ada notes menu yang match (bukan `null`).
+- `sold_out` (2026-10-09) — `true` kalau item ini (`master_item.id`) lagi ditandai sold out buat **branch yang diminta** (`master_item_sold_out`, lihat "Update (2026-10-09)" di bawah). Item **TETAP MUNCUL** di response (gak di-exclude dari tree) — ini cuma flag informasi buat FE kasih badge/disable tap, bukan filter. Guard beneran (tolak order kalau nekat pesan item sold out) ada di `order/create-order`/`qr-order/create-order`, BUKAN di endpoint ini.
 
 **Level package group** (`package_list[]`):
 
@@ -141,7 +143,7 @@ WHERE bvp.branch_id = ? AND bvp.visit_purpose_id = ? AND bvp.flag_mobile_custome
 SELECT id, rate FROM master_tax WHERE id IN (?)  -- cuma tax_id yang bukan null/0
 ```
 
-**3. Tree menu + harga + `use_tax` mentah per item:**
+**3. Tree menu + harga + `use_tax` mentah + flag sold out per item:**
 ```sql
 SELECT
   mic.id AS category_id, mic.name AS category_name,
@@ -149,12 +151,14 @@ SELECT
   misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
   mi.id AS item_id, mi.item_code, mi.item_name, mi.item_description,
   mi.image AS image_src, mi.icon_src AS item_icon_src,
-  mpd.price, mi.use_tax
+  mpd.price, mi.use_tax,
+  (mso.id IS NOT NULL) AS sold_out
 FROM master_pricelist_detail mpd
 JOIN master_item_conversion_detail micd ON micd.id = mpd.item_conversion_detail_id
 JOIN master_item mi ON mi.id = micd.item_id
 JOIN master_item_category mic ON mic.id = mi.item_category
 LEFT JOIN master_item_sub_category misc ON misc.id = mi.item_subcategory
+LEFT JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id
 WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
   AND mi.item_status = '1'
 ORDER BY mic.name ASC, misc.name ASC, mi.item_name ASC
@@ -226,6 +230,22 @@ Dicocokkan in-memory ke tiap item/sub-item (`pricing.ResolveNotesMenu()`) — `a
 Dipakai bareng `order/calculate` (`order_handler.go`, `pricing.FetchPackages()`) — endpoint itu **sengaja** pass `nil` buat parameter `notesMenu` (bukan fetch beneran) karena `order/calculate` bukan endpoint menu-browsing, `PackageSubItem.NotesMenu` gak relevan ditampilin/dipakai di response kalkulasi harga. `pricing.ResolveNotesMenu()` nil-safe, `nil` balikin `[]` doang, gak crash.
 
 Tervalidasi: `go build ./...` dan `go vet ./...` bersih di seluruh project (termasuk `modules/order` yang ikut kena perubahan signature `FetchPackages()`). Belum tervalidasi live via request HTTP (server dev belum dijalankan pas perubahan ini dibuat) — disarankan sync manual/tes 1 branch yang punya data `master_notes_menu` real sebelum dianggap final.
+
+## Update (2026-10-09) — Sold Out
+
+`sold_out` ditambahin di tiap `items[]` (menu utama) — **BUKAN** di `menu_package_list[]` (sub-item package), sesuai keputusan sesi: sold out cuma berlaku level item utama dulu, sub-item/varian package di luar scope ini.
+
+Sumbernya `master_item_sold_out` (sudocore2, migration `264`) — tabel BARU yang isinya item yang LAGI sold out per branch, DI-PUSH MANUAL dari POS lokal (tombol "Push Sold Out" di Menu Management page POS, lewat `APIANDORDER` `/pos/push/sold_out`). **Bukan auto-generate di ERP** — kalau POS belum pernah push, tabel ini kosong dan semua item `sold_out: false` apa adanya (bukan error).
+
+`item_id` di `master_item_sold_out` = `master_item.id` (item FISIK, sama persis `MasterItemID` yang dipakai lookup `packages[...]` — lihat komentar `menuItemRow` di `visitpurpose_handler.go`), **bukan** `item_conversion_detail_id`. Join-nya `LEFT JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id` — pakai `branch_id` yang diminta, BUKAN pakai company/global, karena sold out itu per-outlet (1 POS = 1 branch, flag_soldout POS juga per-item per-install).
+
+**Cuma flag, gak exclude** — item sold out tetap muncul normal di tree ini (konsisten "endpoint menu-browsing nampilin apa adanya, validasi/block ada di endpoint order"). Enforcement BENERAN (tolak order kalau item sold out ikut dipesan) ada di `order/create-order` (member app) dan `qr-order/create-order` (QR Order) — lihat `checkSoldOutItems()` di `backend/modules/order/order_handler.go`, dipanggil di `Create()` KEDUA handler **SETELAH** barrier jam operasional/heartbeat, **SEBELUM** `calculateOrder()`. SENGAJA **TIDAK** ditaruh di `calculateOrder()` (fungsi bersama Calculate+Create) — `order/calculate` (preview keranjang) tetap bisa dipakai lihat harga meski ada item sold out, biar customer masih bisa lihat breakdown sebelum diputusin ganti item.
+
+Kalau ada item sold out ikut di-submit ke Create, response: `{ "code": 100, "message": "item berikut sedang sold out: <nama item 1>, <nama item 2>" }` — nama item (bukan id), biar jelas ke customer item mana yang dimaksud.
+
+**Versi QR Order otomatis kebawa** untuk bagian menu tree (sama alasan seperti `notes_menu` di atas — reuse `resolveVisitPurposeDetail()` yang sama), guard Create-nya ditulis terpisah tapi identik persis di `order_qr_create_handler.go` (2 file beda karena request/response shape Create member app vs QR Order beda, bukan karena logic sold out-nya beda).
+
+Tervalidasi lewat query manual ke database dev (`go build`/`go vet` bersih) — insert baris test ke `master_item_sold_out`, query JOIN mendeteksi item yang di-push, item lain & branch lain tetap `false`/tidak kena filter. Data test dibersihkan setelah verifikasi. Belum dites end-to-end lewat HTTP request beneran (header `X-App-Setting` terenkripsi, butuh app/tooling client buat generate).
 
 ## Status
 

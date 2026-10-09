@@ -158,16 +158,22 @@ Urutan cek (berhenti di kegagalan pertama):
    `"cabang sedang tutup (di luar jam operasional)"`.
 6. Branch offline (POS gak kirim heartbeat, `heartbeat.IsOnline()`) →
    `"cabang sedang offline, coba lagi nanti"`.
-7. Barrier promo LENGKAP (2026-09-30, REVISI — dulu langsung ditolak di poin ini, sekarang lewat
+7. **(2026-10-09)** Ada item di `items[]` yang lagi sold out (`master_item_sold_out`, di-push
+   manual dari POS lokal — lihat `sold_out` di
+   [`03 GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md)) →
+   `"item berikut sedang sold out: <nama item 1>, <nama item 2>"`. Dicek pakai
+   `checkSoldOutItems()` (`modules/order/order_handler.go`, fungsi SAMA PERSIS yang dipakai
+   member app) — SEMUA item sold out yang ikut di-order disebut namanya sekaligus.
+8. Barrier promo LENGKAP (2026-09-30, REVISI — dulu langsung ditolak di poin ini, sekarang lewat
    `calculateOrder()` yang sama dipakai member app, lihat [`KETENTUAN PROMO.md`](../../MOBILE/ORDER/KETENTUAN%20PROMO.md)
    buat daftar lengkap) + validasi item/package (sama persis [`CALCULATE.md`](./05%20CALCULATE.md)) —
    `"cuma boleh pakai maksimal 1 promo per order"`, `"This promo is for members only"` (promo
    butuh identitas member — SELALU kena di QR Order karena `member_id` gak pernah ada),
    `"promo {id} tidak ditemukan / tidak berlaku"`, `"item tidak ditemukan..."`, dst.
-8. `payment_method_id` gak ketemu/gak lolos filter →
+9. `payment_method_id` gak ketemu/gak lolos filter →
    `"payment method tidak ditemukan / tidak berlaku"`.
 
-Poin 5-6 **cuma di Create**, gak ada di rencana `CALCULATE.md` (preview, gak nyimpen apa-apa) —
+Poin 5-7 **cuma di Create**, gak ada di rencana `CALCULATE.md` (preview, gak nyimpen apa-apa) —
 sama pola kayak member app.
 
 ## Alur (reuse fungsi member app, header beda)

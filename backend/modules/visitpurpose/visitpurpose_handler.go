@@ -95,6 +95,12 @@ type menuItemRow struct {
 	ItemIconSrc     *string `bun:"item_icon_src"`
 	Price           string  `bun:"price"`
 	UseTax          string  `bun:"use_tax"`
+	// SoldOut (2026-10-09): true kalau master_item_id ini ada di master_item_sold_out buat
+	// branch yang lagi diminta -- di-push MANUAL dari POS lokal (tombol "Push Sold Out" di
+	// Menu Management), BUKAN auto-generate di ERP. Item TETAP MUNCUL di list (gak di-exclude)
+	// -- cuma ditandai, biar FE bisa kasih badge/disable tap. Enforcement beneran (tolak order)
+	// ada di order_handler.go (CreateOrder), bukan di sini.
+	SoldOut bool `bun:"sold_out"`
 }
 
 type menuItem struct {
@@ -110,6 +116,7 @@ type menuItem struct {
 	TaxRate         *string                `json:"tax_rate"`
 	PackageList     []pricing.PackageGroup `json:"package_list"`
 	NotesMenu       []string               `json:"notes_menu"`
+	SoldOut         bool                   `json:"sold_out"`
 }
 
 type menuSubcategory struct {
@@ -224,16 +231,18 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 			mpd.item_conversion_detail_id AS item_id, mi.id AS master_item_id,
 			mi.item_code, mi.item_name, mi.item_description,
 			mi.image AS image_src, mi.icon_src AS item_icon_src,
-			mpd.price, mi.use_tax
+			mpd.price, mi.use_tax,
+			(mso.id IS NOT NULL) AS sold_out
 		FROM master_pricelist_detail mpd
 		JOIN master_item_conversion_detail micd ON micd.id = mpd.item_conversion_detail_id
 		JOIN master_item mi ON mi.id = micd.item_id
 		JOIN master_item_category mic ON mic.id = mi.item_category
 		LEFT JOIN master_item_sub_category misc ON misc.id = mi.item_subcategory
+		LEFT JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id
 		WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
 			AND mi.item_status = '1'
 		ORDER BY mic.name ASC, misc.name ASC, mi.item_name ASC
-	`, cfg.MenuTemplateID).Scan(ctx, &rows)
+	`, branchID, cfg.MenuTemplateID).Scan(ctx, &rows)
 	if err != nil {
 		return nil, "", err
 	}
@@ -310,6 +319,7 @@ func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pr
 			TaxRate:         taxRate,
 			PackageList:     packageList,
 			NotesMenu:       pricing.ResolveNotesMenu(notesMenu, row.CategoryID, row.SubcategoryID),
+			SoldOut:         row.SoldOut,
 		}
 
 		catIdx := len(categories) - 1

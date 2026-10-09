@@ -117,6 +117,20 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
 	}
 
+	// Barrier sold out (2026-10-09) -- SAMA PERSIS Create() member app, lihat komentar
+	// checkSoldOutItems() di order_handler.go.
+	menuIDsForSoldOutCheck := make([]int64, 0, len(body.Items))
+	for _, item := range body.Items {
+		menuIDsForSoldOutCheck = append(menuIDsForSoldOutCheck, item.MenuID)
+	}
+	soldOutNames, err := checkSoldOutItems(ctx, h.db, int64(qrCtx.BranchID), menuIDsForSoldOutCheck)
+	if err != nil {
+		return c.JSON(res.SetCode(100).SetMessage("gagal cek status sold out"))
+	}
+	if len(soldOutNames) > 0 {
+		return c.JSON(res.SetCode(100).SetMessage("item berikut sedang sold out: " + strings.Join(soldOutNames, ", ")))
+	}
+
 	// memberID selalu 0 (QR Order = tamu, gak ada login) -- calculateOrder() otomatis nolak
 	// promo yang butuh identitas member (lihat catatan Create() di atas).
 	calcReq := calculateRequest{
