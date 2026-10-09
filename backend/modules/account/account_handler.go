@@ -81,7 +81,7 @@ func (h *handler) Me(c fiber.Ctx) error {
 
 	data, err := fetchMe(c.Context(), h.db, memberID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data akun"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch account data"))
 	}
 
 	return c.JSON(res.Success().SetData(data))
@@ -106,12 +106,12 @@ func (h *handler) UpdateMe(c fiber.Ctx) error {
 
 	var req updateMeRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return c.JSON(res.SetCode(100).SetMessage("name wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("name is required"))
 	}
 
 	var genderPtr *string
@@ -122,18 +122,18 @@ func (h *handler) UpdateMe(c fiber.Ctx) error {
 		g := req.Gender
 		genderPtr = &g
 	default:
-		return c.JSON(res.SetCode(100).SetMessage(`gender wajib "male", "female", atau dikosongin`))
+		return c.JSON(res.SetCode(100).SetMessage(`gender must be "male", "female", or empty`))
 	}
 
 	if _, err := h.db.NewRaw(
 		`UPDATE master_member SET name = ?, gender = ? WHERE id = ?`, name, genderPtr, memberID,
 	).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal update profil"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to update profile"))
 	}
 
 	data, err := fetchMe(c.Context(), h.db, memberID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("profil kesimpen, tapi gagal ambil data terbaru"))
+		return c.JSON(res.SetCode(100).SetMessage("profile saved, but failed to fetch the latest data"))
 	}
 
 	return c.JSON(res.Success().SetData(data))

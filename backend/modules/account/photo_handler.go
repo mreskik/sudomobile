@@ -75,22 +75,22 @@ func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 		WHERE member_id = ? AND created_at >= CURRENT_DATE
 	`, memberID).Scan(c.Context(), &todayCount)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek batas ganti foto"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check photo change limit"))
 	}
 	if todayCount >= maxPhotoPerDay {
-		return c.JSON(res.SetCode(100).SetMessage(fmt.Sprintf("batas ganti foto profil hari ini udah abis (maks %dx), coba lagi besok", maxPhotoPerDay)))
+		return c.JSON(res.SetCode(100).SetMessage(fmt.Sprintf("profile photo change limit reached today (max %dx), try again tomorrow", maxPhotoPerDay)))
 	}
 
 	fh, err := c.FormFile("file")
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("file wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("file is required"))
 	}
 
 	// path lama diambil DULU, sebelum disentuh -- dipakai buat hapus file fisiknya setelah
 	// transaksi commit.
 	var oldPath *string
 	if err := h.db.NewRaw(`SELECT profile_photo_src FROM master_member WHERE id = ?`, memberID).Scan(c.Context(), &oldPath); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data member"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch member data"))
 	}
 
 	path, err := savePhoto(c, fh)
@@ -100,7 +100,7 @@ func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal simpan foto"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save photo"))
 	}
 	gagal := true
 	defer func() {
@@ -112,17 +112,17 @@ func (h *handler) UpdatePhoto(c fiber.Ctx) error {
 	if _, err := tx.NewRaw(
 		`UPDATE master_member SET profile_photo_src = ? WHERE id = ?`, path, memberID,
 	).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal simpan foto"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save photo"))
 	}
 	if _, err := tx.NewRaw(
 		`INSERT INTO mobile_member_photo_change_log (member_id) VALUES (?)`, memberID,
 	).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal simpan foto"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save photo"))
 	}
 
 	gagal = false
 	if err := tx.Commit(); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal simpan foto"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save photo"))
 	}
 
 	deleteOldPhoto(oldPath)
@@ -146,18 +146,18 @@ func deleteOldPhoto(oldPath *string) {
 	filename := strings.TrimPrefix(*oldPath, prefix)
 	fullPath := filepath.Join(photoStorageRoot(), filename)
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		fmt.Println("[WARN] gagal hapus foto profil lama:", fullPath, err)
+		fmt.Println("[WARN] failed to delete old profile photo:", fullPath, err)
 	}
 }
 
 func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {
 	if fh.Size > maxPhotoSize {
-		return "", fmt.Errorf("ukuran file maksimal %d MB", maxPhotoSize/1024/1024)
+		return "", fmt.Errorf("maximum file size is %d MB", maxPhotoSize/1024/1024)
 	}
 
 	ext := strings.ToLower(filepath.Ext(fh.Filename))
 	if !allowedPhotoExt[ext] {
-		return "", errors.New("tipe file tidak diizinkan")
+		return "", errors.New("file type is not allowed")
 	}
 
 	id, err := uuid.NewV7()
@@ -222,7 +222,7 @@ func savePhoto(c fiber.Ctx, fh *multipart.FileHeader) (string, error) {
 func reduceImage(r io.Reader, ext string) (data []byte, outExt string, err error) {
 	src, format, err := image.Decode(r)
 	if err != nil {
-		return nil, "", fmt.Errorf("gagal decode gambar: %w", err)
+		return nil, "", fmt.Errorf("failed to decode image: %w", err)
 	}
 
 	bounds := src.Bounds()
@@ -246,12 +246,12 @@ func reduceImage(r io.Reader, ext string) (data []byte, outExt string, err error
 	switch format {
 	case "png":
 		if err := png.Encode(&buf, resized); err != nil {
-			return nil, "", fmt.Errorf("gagal encode PNG: %w", err)
+			return nil, "", fmt.Errorf("failed to encode PNG: %w", err)
 		}
 		return buf.Bytes(), ".png", nil
 	default:
 		if err := jpeg.Encode(&buf, resized, &jpeg.Options{Quality: photoReduceQuality}); err != nil {
-			return nil, "", fmt.Errorf("gagal encode JPEG: %w", err)
+			return nil, "", fmt.Errorf("failed to encode JPEG: %w", err)
 		}
 		return buf.Bytes(), ".jpg", nil
 	}

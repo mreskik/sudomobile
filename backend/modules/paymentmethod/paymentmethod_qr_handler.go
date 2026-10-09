@@ -34,7 +34,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -42,7 +42,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 
 	list, err := resolvePaymentMethodList(ctx, h.db, qrCtx.BranchID, qrCtx.VisitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch payment method data"))
 	}
 
 	// QR Order gak pernah ada konsep login member (publik total, auth-nya db_code/company_code/

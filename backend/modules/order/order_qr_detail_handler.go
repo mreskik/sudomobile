@@ -81,7 +81,7 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -102,17 +102,17 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 	`, orderNumber).Scan(ctx, &header)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("order not found"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order data"))
 	}
 	if !header.belongsToQRBranch(qrCtx.BranchID) {
-		return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
+		return c.JSON(res.SetCode(100).SetMessage("order not found"))
 	}
 
 	items, payment, err := resolveOrderDetailCore(ctx, h.db, orderNumber, header.Status)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data item order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order item data"))
 	}
 
 	return c.JSON(res.Success().SetData(qrOrderDetailResult{

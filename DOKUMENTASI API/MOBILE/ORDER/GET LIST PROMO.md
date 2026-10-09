@@ -41,7 +41,8 @@ Lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) buat penjelasan lengkap mekan
       "tiers": [
         { "tier_level": 1, "name": "Bronze" },
         { "tier_level": 2, "name": "Silver" }
-      ]
+      ],
+      "image_src": "promo/20261009-abc123.jpg"
     }
   ]
 }
@@ -52,6 +53,7 @@ Lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) buat penjelasan lengkap mekan
 - `flag_required_member` (2026-09-30) — `true` kalau promo ini cuma bisa dipakai sambil ada member (login) pas order disubmit lewat `Calculate()`/`Create()`, `false` kalau tetap bisa dipakai guest (lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #0b). Karena endpoint List ini sendiri SELALU wajib login (lihat catatan di atas), field ini gak pernah jadi alasan promo hilang dari list — murni info biar FE bisa nampilin badge "khusus member" di UI kalau perlu (mis. guest yang somehow bisa lihat list ini via endpoint lain, atau buat konsistensi visual walau di context ini semua yang lihat udah pasti login).
 - `flag_all_tiers`/`tiers` (2026-09-30) — sama pola `target_ids`, tapi buat dimensi Tier Member (lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) barrier #6b). `flag_all_tiers: true` → promo berlaku SEMUA tier, `tiers: []` (gak relevan). `flag_all_tiers: false` → `tiers` berisi daftar tier yang di-allow (`tier_level`+`name`, JOIN ke `master_member_tier_setting_detail` — nama-nya langsung disertakan, FE gak perlu fetch [`dropdown-tier-level`](../../../../sudocore2/DOKUMENTASI%20API/MASTER/MASTER%20PROMO.md) terpisah cuma buat nampilin nama tier di sini). Promo yang list ini kembalikan **udah pasti lolos barrier tier** (`tier_level` member yang login match salah satu di sini, ATAU `flag_all_tiers=true`) — `tiers` di sini murni info buat FE, bukan alasan filter.
 - Tipe `freeitem` **gak pernah muncul** di list ini (belum didukung sama sekali, lihat `KETENTUAN PROMO.md`).
+- `image_src` (2026-10-09) — path/URL gambar promo, apa adanya dari kolom `master_promo.image_src` (sudocore2, udah ada sejak migration 248, 2026-10-02) — nama field SAMA, gak di-rename. Nullable, `omitempty` kalau promo itu belum diisi gambarnya (banyak promo lama).
 
 `branch_id`/`visit_purpose_id` yang bukan angka → `{ "code": 100, "message": "branch_id tidak valid" }` / `"visit_purpose_id tidak valid"`. Kombinasi yang gak ada promo eligible sama sekali → array kosong `[]`, bukan error. Tanpa `Authorization` → `{ "code": 100, "message": "token tidak ditemukan" }`.
 

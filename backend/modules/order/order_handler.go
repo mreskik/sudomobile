@@ -162,18 +162,18 @@ func (h *handler) Calculate(c fiber.Ctx) error {
 
 	var body calculateRequest
 	if err := c.Bind().Body(&body); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid body"))
 	}
 	if body.BranchID == 0 || body.VisitPurposeID == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id dan visit_purpose_id wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("branch_id and visit_purpose_id are required"))
 	}
 	if len(body.Items) == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("items tidak boleh kosong"))
+		return c.JSON(res.SetCode(100).SetMessage("items cannot be empty"))
 	}
 
 	result, errMsg, err := calculateOrder(c.Context(), h.db, body, memberID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menghitung order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to calculate order"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -193,7 +193,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		return nil, "", err
 	}
 	if cfg == nil {
-		return nil, "visit purpose tidak ditemukan", nil
+		return nil, "visit purpose not found", nil
 	}
 
 	// menuIDs = item_conv id (item.MenuID, dari request client) -- dipakai resolveMenuRows().
@@ -238,7 +238,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	// pesan errornya spesifik ("kebanyakan promo") bukan ke-mask sama pesan generic lain kalau
 	// kebetulan gak login juga.
 	if len(body.UsePromoIDs) > 1 {
-		return nil, "cuma boleh pakai maksimal 1 promo per order", nil
+		return nil, "only a maximum of 1 promo is allowed per order", nil
 	}
 
 	// hasPromo: cuma fetch data member (member_type_id/tier_level/saldo poin) kalau BENERAN ada
@@ -280,11 +280,11 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 
 	for _, itemReq := range body.Items {
 		if itemReq.Qty <= 0 {
-			return nil, "qty item wajib lebih dari 0", nil
+			return nil, "item qty must be greater than 0", nil
 		}
 		row, ok := menuRows[itemReq.MenuID]
 		if !ok {
-			return nil, "item tidak ditemukan di menu branch/visit purpose ini", nil
+			return nil, "item not found in this branch/visit purpose menu", nil
 		}
 
 		_, taxRate := pricing.ResolveItemTax(row.UseTax, cfg, taxRates)
@@ -321,23 +321,23 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 			return nil, "", dErr
 		}
 		if promo == nil {
-			return nil, fmt.Sprintf("promo %d tidak ditemukan / tidak berlaku", promoID), nil
+			return nil, fmt.Sprintf("promo %d not found / not applicable", promoID), nil
 		}
 
 		minBuy := mustFloat(promo.MinBuyAmount)
 		if minBuy > 0 && preDiscountSubtotal < minBuy {
-			return nil, fmt.Sprintf("belanja belum mencapai minimum buat promo %d", promoID), nil
+			return nil, fmt.Sprintf("spending has not reached the minimum for promo %d", promoID), nil
 		}
 		minPoint := mustFloat(promo.MinPointAmount)
 		if minPoint > 0 && memberPoint < minPoint {
-			return nil, fmt.Sprintf("poin member gak cukup buat promo %d", promoID), nil
+			return nil, fmt.Sprintf("member points are insufficient for promo %d", promoID), nil
 		}
 		usedToday, dErr := pricing.PromoUsedToday(ctx, db, promo.ID)
 		if dErr != nil {
 			return nil, "", dErr
 		}
 		if promo.ApplyLimitPerDay != nil && *promo.ApplyLimitPerDay > 0 && usedToday >= *promo.ApplyLimitPerDay {
-			return nil, fmt.Sprintf("promo %d udah mencapai limit pemakaian hari ini", promoID), nil
+			return nil, fmt.Sprintf("promo %d has reached its usage limit for today", promoID), nil
 		}
 
 		matchedAny := false
@@ -353,12 +353,12 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 			}
 			matchedAny = true
 			if existing := assignedPromo[idx]; existing != nil {
-				return nil, fmt.Sprintf("promo %d dan %d sama-sama cocok ke item %s -- pilih salah satu", existing.ID, promo.ID, p.row.ItemName), nil
+				return nil, fmt.Sprintf("promo %d and %d both match item %s -- choose one", existing.ID, promo.ID, p.row.ItemName), nil
 			}
 			assignedPromo[idx] = promo
 		}
 		if !matchedAny {
-			return nil, fmt.Sprintf("promo %d tidak berlaku buat item apa pun di cart", promoID), nil
+			return nil, fmt.Sprintf("promo %d does not apply to any item in the cart", promoID), nil
 		}
 		pointRedeemAmount += minPoint
 	}
@@ -434,7 +434,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		for _, pkgReq := range itemReq.Packages {
 			group, ok := availableGroups[pkgReq.PackageID]
 			if !ok {
-				return nil, "package tidak ditemukan buat item ini", nil
+				return nil, "package not found for this item", nil
 			}
 
 			subItemsByID := map[int64]pricing.PackageSubItem{}
@@ -445,11 +445,11 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 			var selectedQty int64
 			for _, sel := range pkgReq.Selections {
 				if sel.Qty <= 0 {
-					return nil, "qty pilihan package wajib lebih dari 0", nil
+					return nil, "package selection qty must be greater than 0", nil
 				}
 				subItem, ok := subItemsByID[sel.MenuPackageID]
 				if !ok {
-					return nil, "pilihan package tidak ditemukan di grup ini", nil
+					return nil, "package selection not found in this group", nil
 				}
 				selectedQty += sel.Qty
 
@@ -480,7 +480,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 			}
 
 			if selectedQty < group.MinQty || selectedQty > group.MaxQty {
-				return nil, "jumlah pilihan package di luar batas min/max grup", nil
+				return nil, "package selection quantity is outside the group's min/max limit", nil
 			}
 		}
 

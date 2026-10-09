@@ -83,16 +83,16 @@ func (h *handler) Create(c fiber.Ctx) error {
 
 	var body createOrderRequest
 	if err := c.Bind().Body(&body); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid body"))
 	}
 	if body.BranchID == 0 || body.VisitPurposeID == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id dan visit_purpose_id wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("branch_id and visit_purpose_id are required"))
 	}
 	if len(body.Items) == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("items tidak boleh kosong"))
+		return c.JSON(res.SetCode(100).SetMessage("items cannot be empty"))
 	}
 	if body.PaymentMethodID == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("payment_method_id wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("payment_method_id is required"))
 	}
 
 	ctx := c.Context()
@@ -111,10 +111,10 @@ func (h *handler) Create(c fiber.Ctx) error {
 	// gak berguna dikasih pesan generic pas 2 kemungkinan beda ini butuh tindak lanjut beda
 	// (nunggu buka vs coba lagi bentar lagi).
 	if !branch.IsOpenNow(ctx, h.db, body.BranchID) {
-		return c.JSON(res.SetCode(100).SetMessage("cabang sedang tutup (di luar jam operasional)"))
+		return c.JSON(res.SetCode(100).SetMessage("branch is closed (outside operational hours)"))
 	}
 	if !heartbeat.IsOnline(ctx, h.db, body.BranchID) {
-		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
+		return c.JSON(res.SetCode(100).SetMessage("branch is offline, try again later"))
 	}
 
 	// Barrier sold out (2026-10-09) -- CUMA di Create(), BUKAN di Calculate() (lihat komentar
@@ -127,15 +127,15 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 	soldOutNames, err := checkSoldOutItems(ctx, h.db, int64(body.BranchID), menuIDsForSoldOutCheck)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek status sold out"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check sold out status"))
 	}
 	if len(soldOutNames) > 0 {
-		return c.JSON(res.SetCode(100).SetMessage("item berikut sedang sold out: " + strings.Join(soldOutNames, ", ")))
+		return c.JSON(res.SetCode(100).SetMessage("the following items are sold out: " + strings.Join(soldOutNames, ", ")))
 	}
 
 	calcResult, errMsg, err := calculateOrder(ctx, h.db, body.calculateRequest, memberID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menghitung order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to calculate order"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -143,16 +143,16 @@ func (h *handler) Create(c fiber.Ctx) error {
 
 	paymentMethod, err := pricing.ResolvePaymentMethod(ctx, h.db, body.PaymentMethodID, body.BranchID, body.VisitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch payment method data"))
 	}
 	if paymentMethod == nil {
-		return c.JSON(res.SetCode(100).SetMessage("payment method tidak ditemukan / tidak berlaku"))
+		return c.JSON(res.SetCode(100).SetMessage("payment method not found / not applicable"))
 	}
 
 	var companyID *int
 	var branchCode string
 	if err := h.db.NewRaw(`SELECT company_id, COALESCE(code, '') FROM master_branch WHERE id = ?`, body.BranchID).Scan(ctx, &companyID, &branchCode); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch tidak ditemukan"))
+		return c.JSON(res.SetCode(100).SetMessage("branch not found"))
 	}
 
 	orderNumber := generateOrderNumber(branchCode)
@@ -213,7 +213,7 @@ func (h *handler) Create(c fiber.Ctx) error {
 	}
 
 	if err := insertOrder(ctx, h.db, orderNumber, memberID, companyID, body, calcResult); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menyimpan order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save order"))
 	}
 
 	payment := requestPaymentForOrder(ctx, h.db, orderNumber, body.BranchID, body.PaymentMethodID, paymentMethod.PaymentGatewayCode, calcResult.TotalBilling)
@@ -266,7 +266,7 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 
 		if result.PointRedeemAmount > 0 {
 			if memberIDParam == nil {
-				return fmt.Errorf("promo bersyarat poin butuh member login")
+				return fmt.Errorf("point-conditional promo requires member login")
 			}
 			if err := redeemMemberPoint(ctx, tx, *memberIDParam, body.BranchID, companyID, orderNumber, result.PointRedeemAmount); err != nil {
 				return err
@@ -362,7 +362,7 @@ func requestPaymentForOrder(ctx context.Context, db *bun.DB, orderNumber string,
 		VALUES (?, ?, ?, ?, 'pending')
 	`, orderNumber, orderNumber, paymentMethodID, totalBillingStr).Exec(ctx)
 	if err != nil {
-		reason := "gagal menyimpan attempt pembayaran"
+		reason := "failed to save payment attempt"
 		return paymentInfo{Status: "failed", FailureReason: &reason}
 	}
 

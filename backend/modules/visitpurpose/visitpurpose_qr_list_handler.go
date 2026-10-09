@@ -32,7 +32,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 	branchCtx, errMsg, err := qrorder.ResolveBranch(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -47,7 +47,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 			AND bvp.is_active = true AND vp.is_active = true
 		ORDER BY vp.name ASC
 	`, branchCtx.BranchID).Scan(ctx, &list); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch visit purpose data"))
 	}
 
 	return c.JSON(res.Success().SetData(list))

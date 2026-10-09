@@ -49,7 +49,7 @@ func (h *handler) GetList(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 
 	list := []visitPurposeListItem{}
@@ -62,7 +62,7 @@ func (h *handler) GetList(c fiber.Ctx) error {
 		ORDER BY vp.name ASC
 	`, branchID).Scan(c.Context(), &list)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch visit purpose data"))
 	}
 
 	return c.JSON(res.Success().SetData(list))
@@ -181,16 +181,16 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 	visitPurposeID, err := strconv.Atoi(c.Params("visit_purpose_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid visit_purpose_id"))
 	}
 
 	detail, errMsg, err := resolveVisitPurposeDetail(c.Context(), h.db, branchID, visitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch visit purpose data"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -211,7 +211,7 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 		return nil, "", err
 	}
 	if cfg == nil {
-		return nil, "visit purpose tidak ditemukan", nil
+		return nil, "visit purpose not found", nil
 	}
 
 	taxRates, err := pricing.FetchTaxRates(ctx, db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)

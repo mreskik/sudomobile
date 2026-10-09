@@ -75,7 +75,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 
 	companyCtx, errMsg, err := qrorder.ResolveCompany(ctx, h.db, c.Query("db_code"), c.Query("company_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -98,7 +98,7 @@ func (h *qrHandler) GetList(c fiber.Ctx) error {
 		ORDER BY mb.name ASC
 	`, today, companyCtx.CompanyID).Scan(ctx, &rows)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data branch"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch branch data"))
 	}
 
 	now := time.Now().Format("15:04:05")

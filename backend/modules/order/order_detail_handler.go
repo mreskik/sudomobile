@@ -130,14 +130,14 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 	`, orderNumber).Scan(ctx, &header)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("order not found"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order data"))
 	}
 
 	items, payment, err := resolveOrderDetailCore(ctx, h.db, orderNumber, header.Status)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data item order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order item data"))
 	}
 
 	return c.JSON(res.Success().SetData(orderDetailResult{

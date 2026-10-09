@@ -77,7 +77,7 @@ var validPhoneNumber = regexp.MustCompile(`^[0-9]{10,}$`)
 // angka SEBELUM di-hash (disepakati 6 digit, sama pola app finansial kayak OVO/GoPay).
 func hashPin(pin string) (string, error) {
 	if !validPin.MatchString(pin) {
-		return "", fmt.Errorf("pin harus 6 digit angka")
+		return "", fmt.Errorf("pin must be 6 digit numbers")
 	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(pin), bcrypt.DefaultCost)
 	if err != nil {

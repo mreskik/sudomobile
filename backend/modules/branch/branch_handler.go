@@ -108,7 +108,7 @@ func (h *handler) GetList(c fiber.Ctx) error {
 		ORDER BY mb.name ASC
 	`, today).Scan(c.Context(), &rows)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data branch"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch branch data"))
 	}
 
 	now := time.Now().Format("15:04:05")

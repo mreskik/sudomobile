@@ -67,11 +67,11 @@ func (h *handler) CheckNumber(c fiber.Ctx) error {
 
 	var req checkNumberRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 
 	var count int
@@ -80,7 +80,7 @@ func (h *handler) CheckNumber(c fiber.Ctx) error {
 		req.PhoneNumber,
 	).Scan(c.Context(), &count)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 
 	return c.JSON(res.Success().SetData(checkNumberResponse{
@@ -115,13 +115,13 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 
 	var req requestOTPRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.Type != "register" && req.Type != "login" && req.Type != "reset_pin" {
-		return c.JSON(res.SetCode(100).SetMessage(`type wajib "register", "login", atau "reset_pin"`))
+		return c.JSON(res.SetCode(100).SetMessage(`type must be "register", "login", or "reset_pin"`))
 	}
 
 	// Barier GLOBAL per phone_number (lintas type, bukan per-type) -- gonta-ganti type buat
@@ -140,7 +140,7 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 		req.PhoneNumber,
 	).Scan(c.Context(), &last)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check otp"))
 	}
 
 	nextSeq := 1
@@ -149,7 +149,7 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 			nextSeq = last.RequestSeq + 1
 		} else if remaining := otpCooldown - time.Since(last.CreatedAt); remaining > 0 {
 			return c.JSON(res.SetCode(100).
-				SetMessage("terlalu sering minta otp, coba lagi nanti").
+				SetMessage("too many otp requests, try again later").
 				SetData(fiber.Map{"retry_after_seconds": int(remaining.Seconds())}))
 		}
 		// else: cooldown udah kelewatan -- siklus baru, nextSeq tetep 1.
@@ -157,7 +157,7 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 
 	code, err := generateOTPCode()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate otp"))
 	}
 
 	otp := MobileMemberOTP{
@@ -168,7 +168,7 @@ func (h *handler) RequestOTP(c fiber.Ctx) error {
 		RequestSeq:  nextSeq,
 	}
 	if _, err := h.db.NewInsert().Model(&otp).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate otp"))
 	}
 
 	// TODO: kirim beneran lewat provider WA/SMS begitu udah dipilih -- sekarang cuma di-log.
@@ -236,16 +236,16 @@ func (h *handler) Register(c fiber.Ctx) error {
 
 	var req registerRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.Name == "" {
-		return c.JSON(res.SetCode(100).SetMessage("name wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("name is required"))
 	}
 	if req.OTP == "" {
-		return c.JSON(res.SetCode(100).SetMessage("otp wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("otp is required"))
 	}
 
 	// re-cek belum kedaftar -- check_number di app cuma snapshot pas awal, antara itu & pas
@@ -256,36 +256,36 @@ func (h *handler) Register(c fiber.Ctx) error {
 	if err := h.db.NewRaw(
 		`SELECT COUNT(*) FROM master_member WHERE phone_number = ?`, req.PhoneNumber,
 	).Scan(c.Context(), &existingCount); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 	if existingCount > 0 {
-		return c.JSON(res.SetCode(100).SetMessage("nomor sudah terdaftar"))
+		return c.JSON(res.SetCode(100).SetMessage("phone number already registered"))
 	}
 
 	otp, err := findValidOTP(c.Context(), h.db, req.PhoneNumber, "register")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("otp tidak ditemukan atau sudah kedaluwarsa"))
+			return c.JSON(res.SetCode(100).SetMessage("otp not found or expired"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal verifikasi otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to verify otp"))
 	}
 	if otp.OTPCode != req.OTP {
-		return c.JSON(res.SetCode(100).SetMessage("otp salah"))
+		return c.JSON(res.SetCode(100).SetMessage("incorrect otp"))
 	}
 
 	code, err := generateMemberCode(c.Context(), h.db)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate member code"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate member code"))
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate session"))
 	}
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 	gagal := true
 	defer func() {
@@ -302,13 +302,13 @@ func (h *handler) Register(c fiber.Ctx) error {
 		MemberTypeID: MemberTypeCustomerID,
 	}
 	if _, err := tx.NewInsert().Model(&member).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	now := time.Now()
 	otp.VerifiedAt = &now
 	if _, err := tx.NewUpdate().Model(&otp).Column("verified_at").WherePK().Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	session := MobileMemberSession{
@@ -317,12 +317,12 @@ func (h *handler) Register(c fiber.Ctx) error {
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 	if _, err := tx.NewInsert().Model(&session).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	gagal = false
 	if err := tx.Commit(); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	return c.JSON(res.Success().SetData(sessionResponse{
@@ -377,48 +377,48 @@ func (h *handler) RegisterNoOTP(c fiber.Ctx) error {
 
 	var req registerNoOTPRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.Name == "" {
-		return c.JSON(res.SetCode(100).SetMessage("name wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("name is required"))
 	}
 	if !validPhoneNumber.MatchString(req.PhoneNumber) {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid phone_number"))
 	}
 	if req.Pin == "" {
-		return c.JSON(res.SetCode(100).SetMessage("pin wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("pin is required"))
 	}
 	pinHash, err := hashPin(req.Pin)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("pin harus 6 digit angka"))
+		return c.JSON(res.SetCode(100).SetMessage("pin must be 6 digit numbers"))
 	}
 
 	var existingCount int
 	if err := h.db.NewRaw(
 		`SELECT COUNT(*) FROM master_member WHERE phone_number = ?`, req.PhoneNumber,
 	).Scan(c.Context(), &existingCount); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 	if existingCount > 0 {
-		return c.JSON(res.SetCode(100).SetMessage("nomor sudah terdaftar"))
+		return c.JSON(res.SetCode(100).SetMessage("phone number already registered"))
 	}
 
 	code, err := generateMemberCode(c.Context(), h.db)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate member code"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate member code"))
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate session"))
 	}
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 	gagal := true
 	defer func() {
@@ -435,7 +435,7 @@ func (h *handler) RegisterNoOTP(c fiber.Ctx) error {
 		MemberTypeID: MemberTypeCustomerID,
 	}
 	if _, err := tx.NewInsert().Model(&member).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	session := MobileMemberSession{
@@ -444,17 +444,17 @@ func (h *handler) RegisterNoOTP(c fiber.Ctx) error {
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 	if _, err := tx.NewInsert().Model(&session).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	pin := MobileMemberPin{MemberID: member.ID, PinHash: pinHash}
 	if _, err := tx.NewInsert().Model(&pin).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	gagal = false
 	if err := tx.Commit(); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal register"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to register"))
 	}
 
 	return c.JSON(res.Success().SetData(sessionResponse{
@@ -499,13 +499,13 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 
 	var req loginOTPRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.OTP == "" {
-		return c.JSON(res.SetCode(100).SetMessage("otp wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("otp is required"))
 	}
 
 	var member MasterMember
@@ -515,30 +515,30 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 	).Scan(c.Context(), &member)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("nomor belum terdaftar"))
+			return c.JSON(res.SetCode(100).SetMessage("phone number not registered"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 
 	otp, err := findValidOTP(c.Context(), h.db, req.PhoneNumber, "login")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("otp tidak ditemukan atau sudah kedaluwarsa"))
+			return c.JSON(res.SetCode(100).SetMessage("otp not found or expired"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal verifikasi otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to verify otp"))
 	}
 	if otp.OTPCode != req.OTP {
-		return c.JSON(res.SetCode(100).SetMessage("otp salah"))
+		return c.JSON(res.SetCode(100).SetMessage("incorrect otp"))
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate session"))
 	}
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to login"))
 	}
 	gagal := true
 	defer func() {
@@ -550,7 +550,7 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 	now := time.Now()
 	otp.VerifiedAt = &now
 	if _, err := tx.NewUpdate().Model(&otp).Column("verified_at").WherePK().Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to login"))
 	}
 
 	session := MobileMemberSession{
@@ -559,19 +559,19 @@ func (h *handler) LoginOTP(c fiber.Ctx) error {
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 	if _, err := tx.NewInsert().Model(&session).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to login"))
 	}
 
 	gagal = false
 	if err := tx.Commit(); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to login"))
 	}
 
 	// beda dari Register/LoginPin/ResetPin -- login lewat OTP gak ngewajibin punya PIN, jadi
 	// has_pin di sini beneran bisa true atau false, wajib dicek, gak bisa diasumsikan.
 	memberHasPin, err := hasPin(c.Context(), h.db, member.ID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek status pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check pin status"))
 	}
 
 	return c.JSON(res.Success().SetData(loginOTPResponse{
@@ -604,7 +604,7 @@ func (h *handler) Logout(c fiber.Ctx) error {
 	if _, err := h.db.NewRaw(
 		`DELETE FROM mobile_member_session WHERE token = ?`, token,
 	).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal logout"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to logout"))
 	}
 
 	return c.JSON(res.Success())

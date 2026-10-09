@@ -89,7 +89,7 @@ func (h *handler) GetGlobal(c fiber.Ctx) error {
 	// 	LIMIT ?
 	// `, limit).Scan(c.Context(), &list)
 	// if err != nil {
-	// 	return c.JSON(res.SetCode(100).SetMessage("gagal ambil data best seller"))
+	// 	return c.JSON(res.SetCode(100).SetMessage("failed to fetch best seller data"))
 	// }
 	//
 	// return c.JSON(res.Success().SetData(list))
@@ -101,7 +101,7 @@ func (h *handler) GetByBranch(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 	limit := parseLimit(c)
 
@@ -120,7 +120,7 @@ func (h *handler) GetByBranch(c fiber.Ctx) error {
 		LIMIT ?
 	`, branchID, limit).Scan(c.Context(), &list)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data best seller"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch best seller data"))
 	}
 
 	return c.JSON(res.Success().SetData(list))
@@ -146,11 +146,11 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 	visitPurposeID, err := strconv.Atoi(c.Params("visit_purpose_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid visit_purpose_id"))
 	}
 	limit := parseLimit(c)
 
@@ -158,15 +158,15 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 
 	cfg, err := pricing.ResolveVisitPurposeConfig(ctx, h.db, branchID, visitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch visit purpose data"))
 	}
 	if cfg == nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit purpose tidak ditemukan"))
+		return c.JSON(res.SetCode(100).SetMessage("visit purpose not found"))
 	}
 
 	taxRates, err := pricing.FetchTaxRates(ctx, h.db, cfg.ServiceCharge, cfg.Vat, cfg.Pb1)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data pajak"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch tax data"))
 	}
 
 	// menu_id (mb_order_detail) = item_conversion_detail_id (2026-09-21, dibenerin) --
@@ -191,7 +191,7 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 		LIMIT ?
 	`, cfg.MenuTemplateID, branchID, visitPurposeID, limit).Scan(ctx, &rows)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data best seller"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch best seller data"))
 	}
 
 	for i := range rows {

@@ -37,7 +37,7 @@ func (h *qrHandler) Calculate(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -45,10 +45,10 @@ func (h *qrHandler) Calculate(c fiber.Ctx) error {
 
 	var body qrCalculateRequest
 	if err := c.Bind().Body(&body); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid body"))
 	}
 	if len(body.Items) == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("items tidak boleh kosong"))
+		return c.JSON(res.SetCode(100).SetMessage("items cannot be empty"))
 	}
 
 	calcReq := calculateRequest{
@@ -59,7 +59,7 @@ func (h *qrHandler) Calculate(c fiber.Ctx) error {
 	}
 	result, errMsg, err := calculateOrder(ctx, h.db, calcReq, 0)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menghitung order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to calculate order"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))

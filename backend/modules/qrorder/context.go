@@ -96,7 +96,7 @@ func resolveCompanyRow(ctx context.Context, db *bun.DB, companyCode string) (*co
 	err := db.NewRaw(`SELECT id, code, name FROM master_company WHERE upper(code) = upper(?)`, companyCode).Scan(ctx, &company)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "company tidak ditemukan", nil
+			return nil, "company not found", nil
 		}
 		return nil, "", err
 	}

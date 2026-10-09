@@ -28,7 +28,7 @@ func (h *qrHandler) GetListPromo(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -36,7 +36,7 @@ func (h *qrHandler) GetListPromo(c fiber.Ctx) error {
 
 	list, err := promo.BuildPromoList(ctx, h.db, qrCtx.BranchID, qrCtx.VisitPurposeID, 0, 0)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data promo"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch promo data"))
 	}
 
 	publicList := make([]promo.PromoListItem, 0, len(list))

@@ -63,9 +63,9 @@ func (h *handler) TierSpending(c fiber.Ctx) error {
 	`).Scan(c.Context(), &setting)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("belum ada setting tier"))
+			return c.JSON(res.SetCode(100).SetMessage("tier setting not found"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil setting tier"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch tier setting"))
 	}
 
 	now := time.Now()
@@ -100,7 +100,7 @@ func (h *handler) TierSpending(c fiber.Ctx) error {
 		) combined
 	`, memberID, periodStart, periodEnd, memberID, periodStart, periodEnd).Scan(c.Context(), &spending)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data spending"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch spending data"))
 	}
 
 	var currentTier currentTierRow
@@ -111,7 +111,7 @@ func (h *handler) TierSpending(c fiber.Ctx) error {
 		WHERE mm.id = ?
 	`, memberID).Scan(c.Context(), &currentTier)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data tier"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch tier data"))
 	}
 
 	return c.JSON(res.Success().SetData(tierSpendingResponse{
@@ -135,7 +135,7 @@ func computePeriodStart(s tierSettingRow, now time.Time) (string, error) {
 	switch s.Type {
 	case "week":
 		if s.TypeWeekDay == nil {
-			return "", errors.New("setting tier belum lengkap (type_week_day kosong)")
+			return "", errors.New("tier setting is incomplete (type_week_day is empty)")
 		}
 		target := strings.ToLower(*s.TypeWeekDay)
 		for i := 0; i < 7; i++ {
@@ -144,10 +144,10 @@ func computePeriodStart(s tierSettingRow, now time.Time) (string, error) {
 				return d.Format("2006-01-02"), nil
 			}
 		}
-		return "", errors.New("type_week_day tidak valid")
+		return "", errors.New("invalid type_week_day")
 	case "month":
 		if s.TypeMonthDay == nil {
-			return "", errors.New("setting tier belum lengkap (type_month_day kosong)")
+			return "", errors.New("tier setting is incomplete (type_month_day is empty)")
 		}
 		day := *s.TypeMonthDay
 		if now.Day() >= day {
@@ -156,7 +156,7 @@ func computePeriodStart(s tierSettingRow, now time.Time) (string, error) {
 		prevMonth := now.AddDate(0, -1, 0)
 		return time.Date(prevMonth.Year(), prevMonth.Month(), day, 0, 0, 0, 0, now.Location()).Format("2006-01-02"), nil
 	default:
-		return "", errors.New("setting tier tidak valid")
+		return "", errors.New("invalid tier setting")
 	}
 }
 
@@ -167,7 +167,7 @@ func computeNextEvaluation(s tierSettingRow, now time.Time) (string, error) {
 	switch s.Type {
 	case "week":
 		if s.TypeWeekDay == nil {
-			return "", errors.New("setting tier belum lengkap (type_week_day kosong)")
+			return "", errors.New("tier setting is incomplete (type_week_day is empty)")
 		}
 		target := strings.ToLower(*s.TypeWeekDay)
 		for i := 0; i < 7; i++ {
@@ -176,10 +176,10 @@ func computeNextEvaluation(s tierSettingRow, now time.Time) (string, error) {
 				return d.Format("2006-01-02"), nil
 			}
 		}
-		return "", errors.New("type_week_day tidak valid")
+		return "", errors.New("invalid type_week_day")
 	case "month":
 		if s.TypeMonthDay == nil {
-			return "", errors.New("setting tier belum lengkap (type_month_day kosong)")
+			return "", errors.New("tier setting is incomplete (type_month_day is empty)")
 		}
 		day := *s.TypeMonthDay
 		if now.Day() <= day {
@@ -188,6 +188,6 @@ func computeNextEvaluation(s tierSettingRow, now time.Time) (string, error) {
 		nextMonth := now.AddDate(0, 1, 0)
 		return time.Date(nextMonth.Year(), nextMonth.Month(), day, 0, 0, 0, 0, now.Location()).Format("2006-01-02"), nil
 	default:
-		return "", errors.New("setting tier tidak valid")
+		return "", errors.New("invalid tier setting")
 	}
 }

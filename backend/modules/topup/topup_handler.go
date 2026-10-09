@@ -34,12 +34,12 @@ func (h *handler) Create(c fiber.Ctx) error {
 
 	var req createTopupRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid body"))
 	}
 
 	data, errMsg, err := CreateTopup(c.Context(), h.db, memberID, req)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal membuat top up"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to create top up"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -59,7 +59,7 @@ func (h *handler) CheckStatus(c fiber.Ctx) error {
 
 	data, errMsg, err := CheckTopupStatus(c.Context(), h.db, memberID, referenceNumber)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek status top up"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check top up status"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -88,7 +88,7 @@ func (h *handler) History(c fiber.Ctx) error {
 
 	list, err := GetTopupHistory(c.Context(), h.db, memberID, startDate, endDate)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil riwayat top up"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch top up history"))
 	}
 
 	return c.JSON(res.Success().SetData(list))

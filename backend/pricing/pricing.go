@@ -348,14 +348,14 @@ type LineCalculation struct {
 func CalculateLine(price string, taxRate *string, flagInclusiveTax bool, discountAmount float64) (LineCalculation, error) {
 	priceF, err := strconv.ParseFloat(price, 64)
 	if err != nil {
-		return LineCalculation{}, fmt.Errorf("price tidak valid: %w", err)
+		return LineCalculation{}, fmt.Errorf("invalid price: %w", err)
 	}
 
 	rateF := 0.0
 	if taxRate != nil {
 		rateF, err = strconv.ParseFloat(*taxRate, 64)
 		if err != nil {
-			return LineCalculation{}, fmt.Errorf("tax_rate tidak valid: %w", err)
+			return LineCalculation{}, fmt.Errorf("invalid tax_rate: %w", err)
 		}
 	}
 

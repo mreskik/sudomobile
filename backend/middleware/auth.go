@@ -21,11 +21,11 @@ func Auth(db *bun.DB) fiber.Handler {
 
 		authHeader := c.Get("Authorization")
 		if !strings.HasPrefix(authHeader, "Bearer ") {
-			return c.JSON(res.SetCode(100).SetMessage("token tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("token not found"))
 		}
 		token := strings.TrimPrefix(authHeader, "Bearer ")
 		if token == "" {
-			return c.JSON(res.SetCode(100).SetMessage("token tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("token not found"))
 		}
 
 		var memberID int64
@@ -34,7 +34,7 @@ func Auth(db *bun.DB) fiber.Handler {
 			token,
 		).Scan(c.Context(), &memberID)
 		if err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("token tidak valid"))
+			return c.JSON(res.SetCode(100).SetMessage("invalid token"))
 		}
 
 		c.Locals(memberIDLocalsKey, memberID)

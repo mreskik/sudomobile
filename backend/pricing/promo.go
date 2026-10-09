@@ -39,6 +39,9 @@ type Promo struct {
 	// FlagAllTiers (migration sudocore2 233, 2026-09-30) -- true = promo ini berlaku SEMUA tier,
 	// false = dibatasin cuma tier tertentu (lihat master_promo_tier, dipakai FetchPromoTiers()).
 	FlagAllTiers bool `bun:"flag_all_tiers"`
+	// ImageSrc (migration sudocore2 248, 2026-10-02) -- path/URL gambar promo, nullable murni
+	// optional (banyak promo lama belum diisi). Nama field sama persis kolom DB (image_src).
+	ImageSrc *string `bun:"image_src"`
 }
 
 // promoSelectColumns/promoEligibilityConditions: dipecah dari query jadi konstanta biar
@@ -61,7 +64,7 @@ type Promo struct {
 const promoSelectColumns = `mp.id, mp.name, mp.code, mp.type, mp.type_rupiah_amount, mp.type_percent_use_limit,
 	mp.type_percent_rate, mp.type_percent_limit_amount, mp.type_freeitem_item_id,
 	mp.promo_for, mp.min_buy_amount, mp.min_point_amount, mp.apply_limit_per_day, mp.apply_limit_per_item,
-	mp.flag_required_member, mp.flag_all_tiers`
+	mp.flag_required_member, mp.flag_all_tiers, mp.image_src`
 
 const promoEligibilityConditions = `mp.is_active = true
 	AND mp.period_start <= CURRENT_DATE AND mp.period_end >= CURRENT_DATE

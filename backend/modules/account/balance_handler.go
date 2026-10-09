@@ -36,7 +36,7 @@ func (h *handler) Balance(c fiber.Ctx) error {
 	`, memberID).Scan(c.Context(), &balance)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("gagal ambil saldo"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to fetch balance"))
 		}
 		balance = "0.00"
 	}
@@ -58,7 +58,7 @@ func (h *handler) Point(c fiber.Ctx) error {
 	`, memberID).Scan(c.Context(), &point)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("gagal ambil poin"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to fetch point"))
 		}
 		point = "0"
 	}
@@ -108,7 +108,7 @@ func (h *handler) BalanceHistory(c fiber.Ctx) error {
 		ORDER BY created_at DESC, id DESC
 	`, memberID, startDate, endDate).Scan(c.Context(), &list)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil riwayat saldo"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch balance history"))
 	}
 
 	return c.JSON(res.Success().SetData(list))
@@ -158,7 +158,7 @@ func (h *handler) PointHistory(c fiber.Ctx) error {
 		ORDER BY mpl.created_at DESC, mpl.id DESC
 	`, memberID, startDate, endDate).Scan(c.Context(), &list)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil riwayat poin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch point history"))
 	}
 
 	return c.JSON(res.Success().SetData(list))

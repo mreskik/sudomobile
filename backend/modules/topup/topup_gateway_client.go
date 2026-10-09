@@ -70,7 +70,7 @@ func requestQrisPayment(referenceNumber, paymentGatewayCode string, amount int64
 
 	var envelope paymentGatewayEnvelope
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return nil, fmt.Errorf("response service payment gak valid: %w", err)
+		return nil, fmt.Errorf("invalid response from payment service: %w", err)
 	}
 	if envelope.Code != 0 {
 		return nil, fmt.Errorf("service payment: %s", envelope.Message)
@@ -96,7 +96,7 @@ func getPaymentGatewayStatus(referenceNumber string) (*paymentGatewayResponse, e
 
 	var envelope paymentGatewayEnvelope
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return nil, fmt.Errorf("response service payment gak valid: %w", err)
+		return nil, fmt.Errorf("invalid response from payment service: %w", err)
 	}
 	if envelope.Code != 0 {
 		return nil, fmt.Errorf("service payment: %s", envelope.Message)
@@ -126,7 +126,7 @@ func cancelPaymentGateway(referenceNumber string) error {
 		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(respBody, &envelope); err != nil {
-		return fmt.Errorf("response service payment gak valid: %w", err)
+		return fmt.Errorf("invalid response from payment service: %w", err)
 	}
 	if envelope.Code != 0 {
 		return fmt.Errorf("service payment: %s", envelope.Message)

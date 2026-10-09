@@ -30,7 +30,7 @@ func (h *handler) TierList(c fiber.Ctx) error {
 		FROM master_member_tier_setting_detail
 		ORDER BY level ASC
 	`).Scan(c.Context(), &list); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil daftar tier"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch tier list"))
 	}
 
 	return c.JSON(res.Success().SetData(list))

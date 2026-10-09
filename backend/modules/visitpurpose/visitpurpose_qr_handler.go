@@ -81,7 +81,7 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		dbCode, c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -89,7 +89,7 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 
 	detail, errMsg, err := resolveVisitPurposeDetail(ctx, h.db, qrCtx.BranchID, qrCtx.VisitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data visit purpose"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch visit purpose data"))
 	}
 	if errMsg != "" {
 		// Gak akan kejadian secara normal -- qrorder.Resolve() udah mastiin branch+visit_purpose

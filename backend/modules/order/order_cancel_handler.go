@@ -42,20 +42,20 @@ func (h *handler) CancelOrder(c fiber.Ctx) error {
 	err := h.db.NewRaw(`SELECT member_id, status FROM mb_order WHERE order_number = ?`, orderNumber).Scan(ctx, &order)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("order not found"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order data"))
 	}
 	if order.Status != "pending" {
-		return c.JSON(res.SetCode(100).SetMessage("bukan order pending, gak bisa di-cancel"))
+		return c.JSON(res.SetCode(100).SetMessage("order is not pending, cannot be cancelled"))
 	}
 
 	alreadyPaid, err := cancelPendingAttempt(ctx, h.db, orderNumber)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cancel attempt pembayaran"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to cancel payment attempt"))
 	}
 	if alreadyPaid {
-		return c.JSON(res.SetCode(100).SetMessage("order ternyata sudah dibayar, tidak jadi di-cancel"))
+		return c.JSON(res.SetCode(100).SetMessage("order has already been paid, not cancelled"))
 	}
 
 	err = h.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
@@ -76,10 +76,10 @@ func (h *handler) CancelOrder(c fiber.Ctx) error {
 		return refundMemberPoint(ctx, tx, orderNumber)
 	})
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cancel order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to cancel order"))
 	}
 
-	return c.JSON(res.Success().SetMessage("cancel order berhasil"))
+	return c.JSON(res.Success().SetMessage("order cancelled successfully"))
 }
 
 // cancelPendingAttempt: cancel attempt payment TERBARU kalau statusnya masih 'pending' --

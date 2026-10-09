@@ -60,13 +60,13 @@ func (h *handler) CheckPaymentStatus(c fiber.Ctx) error {
 	err := h.db.NewRaw(`SELECT member_id, status FROM mb_order WHERE order_number = ?`, orderNumber).Scan(ctx, &order)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("order tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("order not found"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order data"))
 	}
 	status, _, errMsg, err := SyncPaymentStatus(ctx, h.db, orderNumber, order.Status)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek status pembayaran"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check payment status"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -100,7 +100,7 @@ func SyncPaymentStatus(ctx context.Context, db *bun.DB, orderNumber, currentOrde
 	`, orderNumber).Scan(ctx, &attempt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", nil, "belum pernah ada request pembayaran buat order ini", nil
+			return "", nil, "no payment request has ever been made for this order", nil
 		}
 		return "", nil, "", err
 	}

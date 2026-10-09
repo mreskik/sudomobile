@@ -83,16 +83,16 @@ func (h *handler) GetList(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 	visitPurposeID, err := strconv.Atoi(c.Params("visit_purpose_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid visit_purpose_id"))
 	}
 
 	list, err := resolvePaymentMethodList(c.Context(), h.db, branchID, visitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch payment method data"))
 	}
 
 	// memberID 0 kalau gak ada token / token invalid/expired (middleware.OptionalAuth, dipasang

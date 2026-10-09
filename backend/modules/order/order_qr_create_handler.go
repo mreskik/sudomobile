@@ -86,7 +86,7 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 	qrCtx, errMsg, err := qrorder.Resolve(ctx, h.db,
 		c.Query("db_code"), c.Query("company_code"), c.Query("branch_code"), c.Query("visit_purpose_code"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal validasi identitas request"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to validate request identity"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -94,27 +94,27 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 
 	var body qrCreateOrderRequest
 	if err := c.Bind().Body(&body); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid body"))
 	}
 
 	body.OrderName = strings.TrimSpace(body.OrderName)
 	if body.OrderName == "" {
-		return c.JSON(res.SetCode(100).SetMessage("order_name wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("order_name is required"))
 	}
 	if len(body.Items) == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("items tidak boleh kosong"))
+		return c.JSON(res.SetCode(100).SetMessage("items cannot be empty"))
 	}
 	if body.PaymentMethodID == 0 {
-		return c.JSON(res.SetCode(100).SetMessage("payment_method_id wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("payment_method_id is required"))
 	}
 
 	// Barrier operasional -- SAMA PERSIS Create() member app (branch_handler.go/heartbeat.go),
 	// dicek SETELAH validasi body (fail-fast dulu buat kesalahan input yang murah dicek).
 	if !branch.IsOpenNow(ctx, h.db, qrCtx.BranchID) {
-		return c.JSON(res.SetCode(100).SetMessage("cabang sedang tutup (di luar jam operasional)"))
+		return c.JSON(res.SetCode(100).SetMessage("branch is closed (outside operational hours)"))
 	}
 	if !heartbeat.IsOnline(ctx, h.db, qrCtx.BranchID) {
-		return c.JSON(res.SetCode(100).SetMessage("cabang sedang offline, coba lagi nanti"))
+		return c.JSON(res.SetCode(100).SetMessage("branch is offline, try again later"))
 	}
 
 	// Barrier sold out (2026-10-09) -- SAMA PERSIS Create() member app, lihat komentar
@@ -125,10 +125,10 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 	}
 	soldOutNames, err := checkSoldOutItems(ctx, h.db, int64(qrCtx.BranchID), menuIDsForSoldOutCheck)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek status sold out"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check sold out status"))
 	}
 	if len(soldOutNames) > 0 {
-		return c.JSON(res.SetCode(100).SetMessage("item berikut sedang sold out: " + strings.Join(soldOutNames, ", ")))
+		return c.JSON(res.SetCode(100).SetMessage("the following items are sold out: " + strings.Join(soldOutNames, ", ")))
 	}
 
 	// memberID selalu 0 (QR Order = tamu, gak ada login) -- calculateOrder() otomatis nolak
@@ -141,7 +141,7 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 	}
 	calcResult, errMsg, err := calculateOrder(ctx, h.db, calcReq, 0)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menghitung order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to calculate order"))
 	}
 	if errMsg != "" {
 		return c.JSON(res.SetCode(100).SetMessage(errMsg))
@@ -149,17 +149,17 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 
 	paymentMethod, err := pricing.ResolvePaymentMethod(ctx, h.db, body.PaymentMethodID, qrCtx.BranchID, qrCtx.VisitPurposeID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data payment method"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch payment method data"))
 	}
 	if paymentMethod == nil {
-		return c.JSON(res.SetCode(100).SetMessage("payment method tidak ditemukan / tidak berlaku"))
+		return c.JSON(res.SetCode(100).SetMessage("payment method not found / not applicable"))
 	}
 
 	orderType := resolveQROrderType(ctx, h.db, qrCtx.VisitPurposeID)
 	orderNumber := generateOrderNumber(qrCtx.BranchCode)
 	companyID := qrCtx.CompanyID
 	if err := insertQROrder(ctx, h.db, orderNumber, &companyID, qrCtx.BranchID, qrCtx.VisitPurposeID, orderType, body.OrderName, nullIfEmpty(body.CustomerPhoneNumber), calcResult); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal menyimpan order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save order"))
 	}
 
 	payment := requestPaymentForOrder(ctx, h.db, orderNumber, qrCtx.BranchID, body.PaymentMethodID, paymentMethod.PaymentGatewayCode, calcResult.TotalBilling)

@@ -36,7 +36,7 @@ func AppSetting(db *bun.DB, key []byte) fiber.Handler {
 
 		raw := c.Get(appSettingHeader)
 		if raw == "" {
-			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " wajib diisi"))
+			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " is required"))
 		}
 
 		decrypted, err := helpers.DecryptAppSetting(key, raw)
@@ -44,48 +44,48 @@ func AppSetting(db *bun.DB, key []byte) fiber.Handler {
 			// pesan error sengaja generic -- gak dibedain "base64 salah" vs "gagal decrypt" vs
 			// "auth tag gak cocok", biar gak ngasih informasi ke pihak yang nyoba nebak-nebak
 			// format/key-nya.
-			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " tidak valid"))
+			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " is invalid"))
 		}
 
 		values, err := url.ParseQuery(decrypted)
 		if err != nil {
-			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " format tidak valid"))
+			return c.JSON(res.SetCode(100).SetMessage(appSettingHeader + " format is invalid"))
 		}
 
 		dbCode := values.Get("db_code")
 
 		companyIDRaw := values.Get("company_id")
 		if companyIDRaw == "" {
-			return c.JSON(res.SetCode(100).SetMessage("company_id wajib diisi di " + appSettingHeader))
+			return c.JSON(res.SetCode(100).SetMessage("company_id is required in " + appSettingHeader))
 		}
 		companyID, err := strconv.Atoi(companyIDRaw)
 		if err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("company_id harus berupa angka"))
+			return c.JSON(res.SetCode(100).SetMessage("company_id must be a number"))
 		}
 
 		var count int
 		if err := db.NewRaw(`SELECT COUNT(*) FROM master_company WHERE id = ?`, companyID).Scan(c.Context(), &count); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal validasi company_id"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to validate company_id"))
 		}
 		if count == 0 {
-			return c.JSON(res.SetCode(100).SetMessage("company_id tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("company_id not found"))
 		}
 
 		brandIDRaw := values.Get("brand_id")
 		if brandIDRaw == "" {
-			return c.JSON(res.SetCode(100).SetMessage("brand_id wajib diisi di " + appSettingHeader))
+			return c.JSON(res.SetCode(100).SetMessage("brand_id is required in " + appSettingHeader))
 		}
 		brandID, err := strconv.Atoi(brandIDRaw)
 		if err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("brand_id harus berupa angka"))
+			return c.JSON(res.SetCode(100).SetMessage("brand_id must be a number"))
 		}
 
 		var brandCount int
 		if err := db.NewRaw(`SELECT COUNT(*) FROM master_brand WHERE id = ?`, brandID).Scan(c.Context(), &brandCount); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal validasi brand_id"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to validate brand_id"))
 		}
 		if brandCount == 0 {
-			return c.JSON(res.SetCode(100).SetMessage("brand_id tidak ditemukan"))
+			return c.JSON(res.SetCode(100).SetMessage("brand_id not found"))
 		}
 
 		c.Locals(dbCodeLocalsKey, dbCode)

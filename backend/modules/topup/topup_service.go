@@ -40,7 +40,7 @@ func resolvePaymentGatewayCode(ctx context.Context, db *bun.DB, paymentMethodID 
 	err := db.NewRaw(`SELECT payment_gateway_code, payment_method_type_id FROM master_payment_method WHERE id = ?`, paymentMethodID).Scan(ctx, &code, &typeID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return "", "payment method tidak ditemukan", nil
+			return "", "payment method not found", nil
 		}
 		return "", "", err
 	}
@@ -48,7 +48,7 @@ func resolvePaymentGatewayCode(ctx context.Context, db *bun.DB, paymentMethodID 
 		return "", "wallet balance cannot be used to top up itself", nil
 	}
 	if !code.Valid || code.String == "" {
-		return "", "payment method tidak didukung", nil
+		return "", "payment method not supported", nil
 	}
 	return code.String, "", nil
 }
@@ -65,16 +65,16 @@ func resolvePaymentGatewayCode(ctx context.Context, db *bun.DB, paymentMethodID 
 // resolvePaymentGatewayCode()).
 func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopupRequest) (*createTopupResponse, string, error) {
 	if req.BranchID == 0 {
-		return nil, "branch_id wajib diisi", nil
+		return nil, "branch_id is required", nil
 	}
 	// decimal, BUKAN float64 -- ini duit, presisi gak boleh keganggu floating-point (sama pola
 	// decimal.NewFromString() yang dipakai luas di sudocore2 buat urusan nominal/akuntansi).
 	amount, err := decimal.NewFromString(strings.TrimSpace(req.Amount))
 	if err != nil || amount.LessThanOrEqual(decimal.Zero) {
-		return nil, "amount wajib lebih dari 0", nil
+		return nil, "amount must be greater than 0", nil
 	}
 	if req.PaymentMethodID == 0 {
-		return nil, "payment_method_id wajib diisi", nil
+		return nil, "payment_method_id is required", nil
 	}
 
 	var companyID *int
@@ -82,12 +82,12 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 	err = db.NewRaw(`SELECT company_id, COALESCE(code, '') FROM master_branch WHERE id = ?`, req.BranchID).Scan(ctx, &companyID, &branchCode)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "branch tidak ditemukan", nil
+			return nil, "branch not found", nil
 		}
 		return nil, "", err
 	}
 	if branchCode == "" {
-		return nil, "", fmt.Errorf("branch id %d belum punya kode (master_branch.code kosong)", req.BranchID)
+		return nil, "", fmt.Errorf("branch id %d does not have a code yet (master_branch.code is empty)", req.BranchID)
 	}
 
 	paymentGatewayCode, errMsg, err := resolvePaymentGatewayCode(ctx, db, req.PaymentMethodID)
@@ -127,7 +127,7 @@ func CreateTopup(ctx context.Context, db *bun.DB, memberID int64, req createTopu
 		_, _ = db.NewUpdate().Model((*MemberTopupOnlineModel)(nil)).
 			Set("status = ?", "failed").
 			Where("reference_number = ?", referenceNumber).Exec(ctx)
-		return nil, "", fmt.Errorf("gagal menghubungi payment gateway: %w", err)
+		return nil, "", fmt.Errorf("failed to contact payment gateway: %w", err)
 	}
 
 	var expiredAt *time.Time
@@ -162,12 +162,12 @@ func CheckTopupStatus(ctx context.Context, db *bun.DB, memberID int64, reference
 	err := db.NewSelect().Model(&topupRow).Where("reference_number = ?", referenceNumber).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "topup tidak ditemukan", nil
+			return nil, "topup not found", nil
 		}
 		return nil, "", err
 	}
 	if topupRow.MemberID != memberID {
-		return nil, "topup tidak ditemukan", nil
+		return nil, "topup not found", nil
 	}
 
 	if topupRow.Status == "paid" {
@@ -264,7 +264,7 @@ func confirmTopupPaid(ctx context.Context, db *bun.DB, topupRow *MemberTopupOnli
 func lockMemberAndInsertLedger(ctx context.Context, tx bun.Tx, memberID int64, branchID *int64, referenceNumber, balanceIn string) (string, error) {
 	var dummy int64
 	if err := tx.NewRaw(`SELECT id FROM master_member WHERE id = ? FOR UPDATE`, memberID).Scan(ctx, &dummy); err != nil {
-		return "", fmt.Errorf("member tidak ditemukan: %w", err)
+		return "", fmt.Errorf("member not found: %w", err)
 	}
 
 	var balanceAfter string

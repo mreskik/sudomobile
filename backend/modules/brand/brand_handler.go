@@ -65,7 +65,7 @@ func (h *handler) GetDefault(c fiber.Ctx) error {
 		FROM master_brand WHERE id = ?
 	`, brandID).Scan(c.Context(), &row)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data brand"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch brand data"))
 	}
 
 	return c.JSON(res.Success().SetData(defaultBrandResponse{

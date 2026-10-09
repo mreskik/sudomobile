@@ -118,29 +118,29 @@ func (h *handler) GetBanners(c fiber.Ctx) error {
 
 	header, err := fetchHeaderBanners(ctx, h.db, brandID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data banner"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch banner data"))
 	}
 
 	swipe, err := fetchScheduledNamedBanners(ctx, h.db, "master_image_mb_cust_banner_swipe", brandID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data banner swipe"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch swipe banner data"))
 	}
 
 	popup, err := fetchPopupBanners(ctx, h.db, brandID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data banner popup"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch popup banner data"))
 	}
 
 	promotion, err := fetchScheduledPromotionBanners(ctx, h.db, brandID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data banner promotion"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch promotion banner data"))
 	}
 
 	// about_us TIDAK pakai fetchScheduledNamedBanners -- tabelnya emang gak punya kolom
 	// flag_all_date/date_start/date_end, gak ada konsep "aktif per tanggal" buat section ini.
 	aboutUs, err := fetchNamedBanners(ctx, h.db, "master_image_mb_cust_banner_about_us", brandID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data banner about us"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch about us banner data"))
 	}
 
 	return c.JSON(res.Success().SetData(bannerResponse{

@@ -27,12 +27,12 @@ func (h *handler) CreatePin(c fiber.Ctx) error {
 
 	var req createPinRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 
 	hash, err := hashPin(req.Pin)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("pin harus 6 digit angka"))
+		return c.JSON(res.SetCode(100).SetMessage("pin must be 6 digit numbers"))
 	}
 
 	var existing MobileMemberPin
@@ -42,17 +42,17 @@ func (h *handler) CreatePin(c fiber.Ctx) error {
 
 	switch {
 	case err == nil:
-		return c.JSON(res.SetCode(100).SetMessage("pin sudah pernah dibuat, gunakan ganti pin"))
+		return c.JSON(res.SetCode(100).SetMessage("pin already created, use change pin instead"))
 	case errors.Is(err, sql.ErrNoRows):
 		newPin := MobileMemberPin{MemberID: memberID, PinHash: hash}
 		if _, err := h.db.NewInsert().Model(&newPin).Exec(c.Context()); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal simpan pin"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to save pin"))
 		}
 	default:
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check pin"))
 	}
 
-	return c.JSON(res.Success().SetMessage("pin berhasil disimpan"))
+	return c.JSON(res.Success().SetMessage("pin saved successfully"))
 }
 
 type changePinRequest struct {
@@ -71,12 +71,12 @@ func (h *handler) ChangePin(c fiber.Ctx) error {
 
 	var req changePinRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 
 	newHash, err := hashPin(req.NewPin)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("pin baru harus 6 digit angka"))
+		return c.JSON(res.SetCode(100).SetMessage("new pin must be 6 digit numbers"))
 	}
 
 	var existing MobileMemberPin
@@ -85,23 +85,23 @@ func (h *handler) ChangePin(c fiber.Ctx) error {
 	).Scan(c.Context(), &existing)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("pin belum pernah dibuat, gunakan buat pin"))
+			return c.JSON(res.SetCode(100).SetMessage("pin not created yet, use create pin instead"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check pin"))
 	}
 
 	if !comparePin(req.OldPin, existing.PinHash) {
-		return c.JSON(res.SetCode(100).SetMessage("pin lama salah"))
+		return c.JSON(res.SetCode(100).SetMessage("incorrect old pin"))
 	}
 
 	now := time.Now()
 	existing.PinHash = newHash
 	existing.UpdatedAt = &now
 	if _, err := h.db.NewUpdate().Model(&existing).Column("pin_hash", "updated_at").WherePK().Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal simpan pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to save pin"))
 	}
 
-	return c.JSON(res.Success().SetMessage("pin berhasil diganti"))
+	return c.JSON(res.Success().SetMessage("pin changed successfully"))
 }
 
 type resetPinRequest struct {
@@ -121,18 +121,18 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 
 	var req resetPinRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.OTP == "" {
-		return c.JSON(res.SetCode(100).SetMessage("otp wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("otp is required"))
 	}
 
 	newHash, err := hashPin(req.NewPin)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("pin baru harus 6 digit angka"))
+		return c.JSON(res.SetCode(100).SetMessage("new pin must be 6 digit numbers"))
 	}
 
 	var member MasterMember
@@ -142,30 +142,30 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 	).Scan(c.Context(), &member)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("nomor belum terdaftar"))
+			return c.JSON(res.SetCode(100).SetMessage("phone number not registered"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 
 	otp, err := findValidOTP(c.Context(), h.db, req.PhoneNumber, "reset_pin")
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("otp tidak ditemukan atau sudah kedaluwarsa"))
+			return c.JSON(res.SetCode(100).SetMessage("otp not found or expired"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal verifikasi otp"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to verify otp"))
 	}
 	if otp.OTPCode != req.OTP {
-		return c.JSON(res.SetCode(100).SetMessage("otp salah"))
+		return c.JSON(res.SetCode(100).SetMessage("incorrect otp"))
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate session"))
 	}
 
 	tx, err := h.db.BeginTx(c.Context(), nil)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 	}
 	gagal := true
 	defer func() {
@@ -177,7 +177,7 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 	now := time.Now()
 	otp.VerifiedAt = &now
 	if _, err := tx.NewUpdate().Model(&otp).Column("verified_at").WherePK().Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 	}
 
 	var existing MobileMemberPin
@@ -189,15 +189,15 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 		existing.PinHash = newHash
 		existing.UpdatedAt = &now
 		if _, err := tx.NewUpdate().Model(&existing).Column("pin_hash", "updated_at").WherePK().Exec(c.Context()); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 		}
 	case errors.Is(errExisting, sql.ErrNoRows):
 		newPin := MobileMemberPin{MemberID: member.ID, PinHash: newHash}
 		if _, err := tx.NewInsert().Model(&newPin).Exec(c.Context()); err != nil {
-			return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+			return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 		}
 	default:
-		return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 	}
 
 	session := MobileMemberSession{
@@ -206,12 +206,12 @@ func (h *handler) ResetPin(c fiber.Ctx) error {
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 	if _, err := tx.NewInsert().Model(&session).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 	}
 
 	gagal = false
 	if err := tx.Commit(); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal reset pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to reset pin"))
 	}
 
 	return c.JSON(res.Success().SetData(sessionResponse{
@@ -239,13 +239,13 @@ func (h *handler) LoginPin(c fiber.Ctx) error {
 
 	var req loginPinRequest
 	if err := c.Bind().Body(&req); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("body request tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid request body"))
 	}
 	if req.PhoneNumber == "" {
-		return c.JSON(res.SetCode(100).SetMessage("phone_number wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("phone_number is required"))
 	}
 	if req.Pin == "" {
-		return c.JSON(res.SetCode(100).SetMessage("pin wajib diisi"))
+		return c.JSON(res.SetCode(100).SetMessage("pin is required"))
 	}
 
 	var member MasterMember
@@ -255,9 +255,9 @@ func (h *handler) LoginPin(c fiber.Ctx) error {
 	).Scan(c.Context(), &member)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("nomor belum terdaftar"))
+			return c.JSON(res.SetCode(100).SetMessage("phone number not registered"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek nomor"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check phone number"))
 	}
 
 	var pin MobileMemberPin
@@ -266,18 +266,18 @@ func (h *handler) LoginPin(c fiber.Ctx) error {
 	).Scan(c.Context(), &pin)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return c.JSON(res.SetCode(100).SetMessage("pin belum pernah diset, silakan login pakai otp dulu"))
+			return c.JSON(res.SetCode(100).SetMessage("pin not set yet, please login with otp first"))
 		}
-		return c.JSON(res.SetCode(100).SetMessage("gagal cek pin"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to check pin"))
 	}
 
 	if !comparePin(req.Pin, pin.PinHash) {
-		return c.JSON(res.SetCode(100).SetMessage("pin salah"))
+		return c.JSON(res.SetCode(100).SetMessage("incorrect pin"))
 	}
 
 	token, err := generateSessionToken()
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal generate session"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to generate session"))
 	}
 
 	session := MobileMemberSession{
@@ -286,7 +286,7 @@ func (h *handler) LoginPin(c fiber.Ctx) error {
 		ExpiresAt: time.Now().Add(sessionExpiry),
 	}
 	if _, err := h.db.NewInsert().Model(&session).Exec(c.Context()); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal login"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to login"))
 	}
 
 	return c.JSON(res.Success().SetData(sessionResponse{

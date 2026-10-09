@@ -80,7 +80,7 @@ func (h *handler) GetHistory(c fiber.Ctx) error {
 
 	list := []orderHistoryItem{}
 	if err := h.db.NewRaw(query, args...).Scan(c.Context(), &list); err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil riwayat order"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch order history"))
 	}
 
 	return c.JSON(res.Success().SetData(list))

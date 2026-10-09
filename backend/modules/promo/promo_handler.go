@@ -52,6 +52,10 @@ type PromoListItem struct {
 	// tier_level+name yang di-allow (lihat pricing.FetchPromoTiers()).
 	FlagAllTiers bool                      `json:"flag_all_tiers"`
 	Tiers        []pricing.PromoTierOption `json:"tiers"`
+	// ImageSrc (2026-10-09) -- path/URL gambar promo (master_promo.image_src di sudocore2,
+	// sudah ada sejak migration 248, baru sekarang ditembuskan ke sudomobile). Nullable --
+	// null/omitempty kalau promo itu belum diisi gambarnya.
+	ImageSrc *string `json:"image_src,omitempty"`
 }
 
 // BuildPromoList: EXPORTED (2026-09-30) -- inti logic GetList() DIPISAH biar bisa dipanggil
@@ -114,6 +118,7 @@ func BuildPromoList(ctx context.Context, db *bun.DB, branchID, visitPurposeID in
 			FlagRequiredMember:     p.FlagRequiredMember,
 			FlagAllTiers:           p.FlagAllTiers,
 			Tiers:                  tiers,
+			ImageSrc:               p.ImageSrc,
 		})
 	}
 
@@ -141,21 +146,21 @@ func (h *handler) GetList(c fiber.Ctx) error {
 
 	branchID, err := strconv.Atoi(c.Params("branch_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("branch_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid branch_id"))
 	}
 	visitPurposeID, err := strconv.Atoi(c.Params("visit_purpose_id"))
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("visit_purpose_id tidak valid"))
+		return c.JSON(res.SetCode(100).SetMessage("invalid visit_purpose_id"))
 	}
 
 	memberTypeID, tierLevel, err := pricing.FetchMemberPromoAttrs(c.Context(), h.db, memberID)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data member"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch member data"))
 	}
 
 	list, err := BuildPromoList(c.Context(), h.db, branchID, visitPurposeID, memberTypeID, tierLevel)
 	if err != nil {
-		return c.JSON(res.SetCode(100).SetMessage("gagal ambil data promo"))
+		return c.JSON(res.SetCode(100).SetMessage("failed to fetch promo data"))
 	}
 
 	return c.JSON(res.Success().SetData(list))
