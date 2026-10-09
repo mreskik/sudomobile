@@ -20,15 +20,24 @@ Gak ada body/param — `brand_id` diambil dari `X-App-Setting`.
   "message": "success",
   "data": {
     "id": 6,
-    "name": "TONAKO"
+    "name": "TONAKO",
+    "brand_color": "#ff6600",
+    "primary_color": "#1a1a1a",
+    "secondary_color": "#f5f5f5"
   }
 }
 ```
 
+`brand_color`/`primary_color`/`secondary_color` (2026-10-09) — warna branding buat theming di mobile app (mis. warna tombol/aksen/header), ganti dari `theme_color` tunggal yang lama di sudocore2 (dihapus total, migration `263` — lihat `MASTER BRAND.md` sudocore2). String bebas (biasanya hex `#rrggbb`, tidak divalidasi formatnya), **string kosong `""`** kalau brand itu belum pernah diisi warnanya (bukan `null` — nullable di DB di-`COALESCE` ke string kosong, konsisten sama field string lain di project ini).
+
 ## Sumber data
 
 ```sql
-SELECT id, name FROM master_brand WHERE id = ?  -- brand_id dari X-App-Setting
+SELECT id, name,
+COALESCE(brand_color, '') as brand_color,
+COALESCE(primary_color, '') as primary_color,
+COALESCE(secondary_color, '') as secondary_color
+FROM master_brand WHERE id = ?  -- brand_id dari X-App-Setting
 ```
 
 Baca langsung dari DB `sudocore2` (`sudomobile` connect ke DB yang sama, gak ada sync/bridge layer).
