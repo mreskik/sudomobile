@@ -375,31 +375,31 @@ func CalculatePromoDiscount(promo *Promo, dpp float64) (float64, error) {
 	case "rupiah":
 		amt, err := strconv.ParseFloat(promo.TypeRupiahAmount, 64)
 		if err != nil {
-			return 0, fmt.Errorf("type_rupiah_amount promo tidak valid: %w", err)
+			return 0, fmt.Errorf("invalid promo type_rupiah_amount: %w", err)
 		}
 		discount = amt
 	case "percent":
 		if promo.TypePercentRate == nil {
-			return 0, fmt.Errorf("type_percent_rate promo kosong")
+			return 0, fmt.Errorf("promo type_percent_rate is empty")
 		}
 		rate, err := strconv.ParseFloat(*promo.TypePercentRate, 64)
 		if err != nil {
-			return 0, fmt.Errorf("type_percent_rate promo tidak valid: %w", err)
+			return 0, fmt.Errorf("invalid promo type_percent_rate: %w", err)
 		}
 		discount = dpp * rate / 100
 		if promo.TypePercentUseLimit {
 			limit, err := strconv.ParseFloat(promo.TypePercentLimitAmount, 64)
 			if err != nil {
-				return 0, fmt.Errorf("type_percent_limit_amount promo tidak valid: %w", err)
+				return 0, fmt.Errorf("invalid promo type_percent_limit_amount: %w", err)
 			}
 			if discount > limit {
 				discount = limit
 			}
 		}
 	case "freeitem":
-		return 0, fmt.Errorf("tipe promo freeitem belum didukung")
+		return 0, fmt.Errorf("freeitem promo type is not supported yet")
 	default:
-		return 0, fmt.Errorf("tipe promo tidak dikenal")
+		return 0, fmt.Errorf("unknown promo type")
 	}
 
 	if discount > dpp {

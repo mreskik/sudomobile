@@ -121,18 +121,18 @@ func resolveBranchRow(ctx context.Context, db *bun.DB, branchCode string, compan
 	`, branchCode).Scan(ctx, &branch)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "branch tidak ditemukan", nil
+			return nil, "branch not found", nil
 		}
 		return nil, "", err
 	}
 	if branch.CompanyID != companyID {
-		return nil, "branch bukan milik company ini", nil
+		return nil, "branch does not belong to this company", nil
 	}
 	if branch.Status != "1" {
-		return nil, "branch tidak aktif", nil
+		return nil, "branch is not active", nil
 	}
 	if !branch.FlagOnlineServiceMobileCustomer {
-		return nil, "branch tidak aktif", nil
+		return nil, "branch is not active", nil
 	}
 	return &branch, "", nil
 }
@@ -142,10 +142,10 @@ func resolveBranchRow(ctx context.Context, db *bun.DB, branchCode string, compan
 // diterima pemanggil ini, jadi gak ada yang perlu dicek).
 func ResolveCompany(ctx context.Context, db *bun.DB, dbCode, companyCode string) (*CompanyContext, string, error) {
 	if strings.TrimSpace(dbCode) == "" {
-		return nil, "db_code wajib diisi", nil
+		return nil, "db_code is required", nil
 	}
 	if strings.TrimSpace(companyCode) == "" {
-		return nil, "company_code wajib diisi", nil
+		return nil, "company_code is required", nil
 	}
 
 	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
@@ -167,13 +167,13 @@ func ResolveCompany(ctx context.Context, db *bun.DB, dbCode, companyCode string)
 // sama Resolve() di bawah, sengaja, bukan lupa refactor).
 func ResolveBranch(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode string) (*BranchContext, string, error) {
 	if strings.TrimSpace(dbCode) == "" {
-		return nil, "db_code wajib diisi", nil
+		return nil, "db_code is required", nil
 	}
 	if strings.TrimSpace(companyCode) == "" {
-		return nil, "company_code wajib diisi", nil
+		return nil, "company_code is required", nil
 	}
 	if strings.TrimSpace(branchCode) == "" {
-		return nil, "branch_code wajib diisi", nil
+		return nil, "branch_code is required", nil
 	}
 
 	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
@@ -222,16 +222,16 @@ func ResolveBranch(ctx context.Context, db *bun.DB, dbCode, companyCode, branchC
 // tinggal SetMessage() apa adanya), (nil, "", err) buat error DB beneran.
 func Resolve(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode, visitPurposeCode string) (*Context, string, error) {
 	if strings.TrimSpace(dbCode) == "" {
-		return nil, "db_code wajib diisi", nil
+		return nil, "db_code is required", nil
 	}
 	if strings.TrimSpace(companyCode) == "" {
-		return nil, "company_code wajib diisi", nil
+		return nil, "company_code is required", nil
 	}
 	if strings.TrimSpace(branchCode) == "" {
-		return nil, "branch_code wajib diisi", nil
+		return nil, "branch_code is required", nil
 	}
 	if strings.TrimSpace(visitPurposeCode) == "" {
-		return nil, "visit_purpose_code wajib diisi", nil
+		return nil, "visit_purpose_code is required", nil
 	}
 
 	company, errMsg, err := resolveCompanyRow(ctx, db, companyCode)
@@ -254,7 +254,7 @@ func Resolve(ctx context.Context, db *bun.DB, dbCode, companyCode, branchCode, v
 	`, visitPurposeCode, branch.ID).Scan(ctx, &visitPurpose)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "visit purpose tidak ditemukan", nil
+			return nil, "visit purpose not found", nil
 		}
 		return nil, "", err
 	}
