@@ -38,6 +38,13 @@ type orderDetailHeader struct {
 }
 
 type orderDetailPackageItem struct {
+	// PackageID (2026-10-12) -- master_item_package_group.id, grup package tempat
+	// MenuPackageID (sub-item) ini berasal. DI-RESOLVE on-the-fly lewat JOIN ke
+	// master_item_package_detail.package_group_id (BUKAN snapshot kolom baru di
+	// mb_order_detail_package -- diputuskan gak perlu migration, cukup join pas query
+	// detail). Nullable -- null kalau baris master_item_package_detail-nya udah kehapus
+	// dari master (sub-item package yang lama dihapus admin).
+	PackageID     *int64  `json:"package_id" bun:"package_id"`
 	MenuPackageID int64   `json:"menu_package_id" bun:"menu_package_id"`
 	ItemID        int64   `json:"item_id" bun:"menu_id"`
 	ItemName      *string `json:"item_name" bun:"item_name"`
@@ -194,11 +201,12 @@ func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status
 
 		packages := []orderDetailPackageRow{}
 		if err := db.NewRaw(`
-			SELECT modp.mb_order_detail_ulid, modp.menu_package_id, modp.menu_id, mi.item_name,
+			SELECT modp.mb_order_detail_ulid, mipd.package_group_id AS package_id, modp.menu_package_id, modp.menu_id, mi.item_name,
 				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.dpp, modp.net_dpp, modp.tax_amount, modp.total
 			FROM mb_order_detail_package modp
 			LEFT JOIN master_item_conversion_detail micd ON micd.id = modp.menu_id
 			LEFT JOIN master_item mi ON mi.id = micd.item_id
+			LEFT JOIN master_item_package_detail mipd ON mipd.id = modp.menu_package_id
 			WHERE modp.mb_order_detail_ulid IN (?)
 			ORDER BY modp.mb_order_detail_ulid ASC
 		`, bun.In(ulids)).Scan(ctx, &packages); err != nil {

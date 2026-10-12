@@ -33,7 +33,9 @@ Sama persis versi member app — lihat
 [`../MOBILE/ORDER/ORDER DETAIL.md`](../../MOBILE/ORDER/ORDER%20DETAIL.md#response) buat contoh &
 penjelasan (`items[]` snapshot, `payment.status` live-synced dengan side effect update
 `mb_order`/`mb_order_payment_request`, QR fields cuma keisi kalau `pending`, `payment_method_*`
-dari attempt terbaru). Ditambah:
+dari attempt terbaru, `packages[].package_id` di-resolve on-the-fly lewat JOIN — lihat
+penjelasan di dokumen member app, berlaku sama di sini karena reuse `resolveOrderDetailCore()`
+yang sama). Ditambah:
 
 ```json
 {

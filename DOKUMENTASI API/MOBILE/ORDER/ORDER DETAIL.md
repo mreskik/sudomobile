@@ -54,6 +54,7 @@ GET /api/order/:order_number
         "discount_amount": "0.00",
         "packages": [
           {
+            "package_id": 12,
             "menu_package_id": 31,
             "item_id": 97,
             "item_name": "HOT OKINAWA LATTE",
@@ -83,6 +84,7 @@ GET /api/order/:order_number
 
 - `customer_name` — **BARU 2026-09-23**. Diisi dari `mb_order.order_name`, keisi cuma kalau `customer_name` dikirim pas [`create-order`](CREATE%20ORDER.md) (opsional). `null` kalau gak diisi/order lama sebelum field ini ada.
 - `items[]`/`items[].packages[]` — snapshot dari `mb_order_detail`/`mb_order_detail_package` (angka FINAL yang beneran kesimpen pas order dibuat, bukan hasil hitung ulang) — beda dari [`CALCULATE.md`](CALCULATE.md) yang ngitung on-the-fly.
+- `packages[].package_id` (2026-10-12) — `master_item_package_group.id`, grup package tempat `menu_package_id` (sub-item) ini berasal. BEDA dari field lain di `packages[]` -- field ini **BUKAN snapshot**, di-resolve on-the-fly lewat JOIN `menu_package_id` ke `master_item_package_detail.package_group_id` tiap kali endpoint ini dipanggil. `null` kalau baris `master_item_package_detail`-nya udah kehapus dari master (sub-item package lama yang dihapus admin) — gak kayak field snapshot lain yang immutable, ini bisa "ilang" retroaktif kalau master datanya diubah/dihapus setelah order dibuat.
 - `payment.status` — **live-synced** tiap kali endpoint ini dipanggil (lewat `syncPaymentStatus()`) — kalau order `pending` dan gateway-nya ternyata udah `settlement`/`expired`, status di response DAN di `mb_order`/`mb_order_payment_request` langsung ikut ke-update (SIDE EFFECT yang disengaja — buka detail order otomatis nge-refresh status, sama kayak manggil [`payment-status`](PAYMENT%20STATUS.md) manual).
 - `payment.vendor_qr_string`/`url`/`expired_at` — **cuma keisi kalau `payment.status == "pending"`**. Order yang udah `paid`/`cancel`/`expired`/`failed` semuanya `null` (gak relevan lagi).
 - `payment.payment_method_id`/`payment_method_name` — dari attempt TERBARU `mb_order_payment_request` (sama pola kayak [`ORDER HISTORY.md`](ORDER%20HISTORY.md)).
