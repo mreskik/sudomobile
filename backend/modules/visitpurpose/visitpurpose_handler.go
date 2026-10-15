@@ -75,6 +75,11 @@ type menuItemRow struct {
 	SubcategoryName *string `bun:"subcategory_name"`
 	IconSrc         *string `bun:"subcategory_icon_src"`
 	BannerSrc       *string `bun:"subcategory_banner_src"`
+	// Sequence (2026-10-15): urutan tampil subcategory, dari master_pricelist_sub_category_sequence
+	// (port dari POS, lihat MENU LIST.md & KIOSK BRANCH VISIT PURPOSE DETAIL.md) -- LEFT JOIN,
+	// null kalau subcategory ini belum pernah diatur urutannya (TIDAK boleh hilang dari tree
+	// cuma gara-gara belum ada baris sequence).
+	Sequence *int64 `bun:"sequence"`
 	// ItemID (2026-09-21, dibenerin): ini item_conversion_detail_id (mpd.item_conversion_detail_id),
 	// BUKAN master_item.id -- identitas item yang dipertukarkan ke client/order HARUS item_conv id,
 	// konsisten sama kontrak POS (tr_order_detail.menu_id = mr_item_conv.id, lihat komentar
@@ -124,6 +129,7 @@ type menuSubcategory struct {
 	SubcategoryName *string    `json:"subcategory_name"`
 	IconSrc         *string    `json:"icon_src"`
 	BannerSrc       *string    `json:"banner_src"`
+	Sequence        *int64     `json:"sequence"`
 	Items           []menuItem `json:"items"`
 }
 
@@ -222,12 +228,22 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 	// COALESCE(mpd.is_deleted, false) -- kolomnya NULLABLE dan di data real isinya NULL (bukan
 	// literal false) buat baris yang emang gak dihapus, `is_deleted = false` doang gak match
 	// NULL di SQL (ketauan pas tes live 2026-08-24), makanya di-COALESCE dulu.
+	// sequence (2026-10-15): urutan tampil subcategory, dari master_pricelist_sub_category_sequence
+	// (port dari POS, lihat MENU LIST.md & KIOSK BRANCH VISIT PURPOSE DETAIL.md -- sumbernya 1:1
+	// sama, cuma di sini dibaca LANGSUNG dari skema ERP, bukan tabel lokal hasil sync). LEFT JOIN
+	// -- subcategory yang belum pernah diatur urutannya TETAP muncul, sequence-nya null.
+	// ORDER BY ditaruh `sequence` DULUAN (null di akhir), category/subcategory name sebagai
+	// tie-break -- AMAN buat buildMenuTree() (yang pecah grup begitu subcategory_id baris
+	// berikutnya beda) karena sequence itu nilai PER subcategory_id (via mpscs.sub_category_id),
+	// jadi semua baris dalam 1 subcategory_id yang sama selalu dapat nilai sequence yang SAMA --
+	// gak akan ke-interleave sama subcategory lain walau sequence-nya ditaruh di depan.
 	rows := []menuItemRow{}
 	err = db.NewRaw(`
 		SELECT
 			mic.id AS category_id, mic.name AS category_name,
 			misc.id AS subcategory_id, misc.name AS subcategory_name,
 			misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
+			mpscs.sequence AS sequence,
 			mpd.item_conversion_detail_id AS item_id, mi.id AS master_item_id,
 			mi.item_code, mi.item_name, mi.item_description,
 			mi.image AS image_src, mi.icon_src AS item_icon_src,
@@ -239,9 +255,11 @@ func resolveVisitPurposeDetail(ctx context.Context, db *bun.DB, branchID, visitP
 		JOIN master_item_category mic ON mic.id = mi.item_category
 		LEFT JOIN master_item_sub_category misc ON misc.id = mi.item_subcategory
 		LEFT JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id
+		LEFT JOIN master_pricelist_sub_category_sequence mpscs
+			ON mpscs.menu_template_id = mpd.menu_template_id AND mpscs.sub_category_id = misc.id
 		WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
 			AND mi.item_status = '1'
-		ORDER BY mic.name ASC, misc.name ASC, mi.item_name ASC
+		ORDER BY (mpscs.sequence IS NULL) ASC, mpscs.sequence ASC, mic.name ASC, misc.name ASC, mi.item_name ASC
 	`, branchID, cfg.MenuTemplateID).Scan(ctx, &rows)
 	if err != nil {
 		return nil, "", err
@@ -293,8 +311,10 @@ func itemIDsOf(rows []menuItemRow) []int64 {
 }
 
 // buildMenuTree: baris flat (1 baris = 1 item, kebawa nama category/subcategory-nya) dirakit
-// jadi tree bersarang. Query udah ORDER BY category lalu subcategory lalu item name, jadi
-// cukup "pecah begitu ID-nya ganti" -- gak perlu sort ulang di Go.
+// jadi tree bersarang. Query udah ORDER BY sequence (null di akhir) lalu category/subcategory/
+// item name, jadi cukup "pecah begitu ID-nya ganti" -- gak perlu sort ulang di Go (lihat
+// komentar ORDER BY di resolveVisitPurposeDetail() soal kenapa sequence duluan tetap aman buat
+// grouping di sini).
 func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pricing.TaxRateMap, packages map[int64][]pricing.PackageGroup, notesMenu []pricing.NotesMenuRow) []menuCategory {
 	categories := []menuCategory{}
 
@@ -342,6 +362,7 @@ func buildMenuTree(rows []menuItemRow, cfg *pricing.VisitPurposeConfig, rates pr
 				SubcategoryName: row.SubcategoryName,
 				IconSrc:         row.IconSrc,
 				BannerSrc:       row.BannerSrc,
+				Sequence:        row.Sequence,
 				Items:           []menuItem{},
 			})
 			subIdx = len(subs) - 1

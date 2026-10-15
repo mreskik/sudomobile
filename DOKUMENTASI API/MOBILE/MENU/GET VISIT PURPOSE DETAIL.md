@@ -39,6 +39,7 @@ Konsep mirip [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-lara
             "subcategory_name": "BARISTA COFFEE",
             "icon_src": "",
             "banner_src": "",
+            "sequence": 1,
             "items": [
               {
                 "item_id": 109,
@@ -124,6 +125,7 @@ Kondisi lain (kosong, gak ketemu, error validasi param) sama kayak sebelumnya �
 
 - `categories`/`subcategories` bisa `[]` kalau visit purpose ini emang belum ada item yang di-set buat channel mobile (`qr_order`, lihat "Catatan penting") -- bukan error.
 - `subcategory_id`/`subcategory_name`/`icon_src`/`banner_src` bisa `null` kalau itemnya gak punya subcategory (`master_item.item_subcategory` NULL) -- item-nya tetep muncul, cuma "nempel" di array `subcategories` dengan subcategory-nya `null`.
+- `sequence` (di tiap `subcategories[]`, BARU 2026-10-15) — urutan tampil subcategory, dari `master_pricelist_sub_category_sequence` (port dari POS, lihat [`MENU LIST.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/POS/POS/MASTER/MENU%20LIST.md) dan [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE%20DETAIL.md) — sumbernya 1:1 sama, cuma di sini dibaca LANGSUNG dari skema ERP, bukan tabel lokal `mr_*` hasil sync). `null` kalau subcategory itu belum pernah diatur urutannya — bukan error. Array `subcategories[]` di response ini **sudah terurut** sesuai `sequence` (`null` ditaruh paling belakang, tie-break nama ASC) — lihat "Update (2026-10-15)" buat detail query & kenapa `ORDER BY sequence` duluan tetap aman buat `buildMenuTree()`.
 - Kalau `visit_purpose_id` gak ketemu (salah, atau `flag_mobile_customer`-nya `false`, atau `is_active`-nya `false`) → `{ "code": 100, "message": "visit purpose tidak ditemukan" }`.
 - `branch_id`/`visit_purpose_id` yang bukan angka → `{ "code": 100, "message": "branch_id tidak valid" }` / `{ "code": 100, "message": "visit_purpose_id tidak valid" }`.
 
@@ -143,12 +145,13 @@ WHERE bvp.branch_id = ? AND bvp.visit_purpose_id = ? AND bvp.flag_mobile_custome
 SELECT id, rate FROM master_tax WHERE id IN (?)  -- cuma tax_id yang bukan null/0
 ```
 
-**3. Tree menu + harga + `use_tax` mentah + flag sold out per item:**
+**3. Tree menu + harga + `use_tax` mentah + flag sold out + sequence subcategory per item:**
 ```sql
 SELECT
   mic.id AS category_id, mic.name AS category_name,
   misc.id AS subcategory_id, misc.name AS subcategory_name,
   misc.icon_src AS subcategory_icon_src, misc.banner_src AS subcategory_banner_src,
+  mpscs.sequence AS sequence,
   mi.id AS item_id, mi.item_code, mi.item_name, mi.item_description,
   mi.image AS image_src, mi.icon_src AS item_icon_src,
   mpd.price, mi.use_tax,
@@ -159,9 +162,11 @@ JOIN master_item mi ON mi.id = micd.item_id
 JOIN master_item_category mic ON mic.id = mi.item_category
 LEFT JOIN master_item_sub_category misc ON misc.id = mi.item_subcategory
 LEFT JOIN master_item_sold_out mso ON mso.branch_id = ? AND mso.item_id = mi.id
+LEFT JOIN master_pricelist_sub_category_sequence mpscs
+  ON mpscs.menu_template_id = mpd.menu_template_id AND mpscs.sub_category_id = misc.id
 WHERE mpd.menu_template_id = ? AND COALESCE(mpd.is_deleted, false) = false AND mpd.qr_order = true
   AND mi.item_status = '1'
-ORDER BY mic.name ASC, misc.name ASC, mi.item_name ASC
+ORDER BY (mpscs.sequence IS NULL) ASC, mpscs.sequence ASC, mic.name ASC, misc.name ASC, mi.item_name ASC
 ```
 
 Resolusi `tax_id`/`tax_rate` per item dihitung di **Go** (`resolveItemTax()`), bukan di SQL — pakai `use_tax` mentah dari query 3 + config dari query 1 + map rate dari query 2. Tree-nya juga dirakit di Go (`buildMenuTree()`), sama kayak Tahap 1.
@@ -246,6 +251,19 @@ Kalau ada item sold out ikut di-submit ke Create, response: `{ "code": 100, "mes
 **Versi QR Order otomatis kebawa** untuk bagian menu tree (sama alasan seperti `notes_menu` di atas — reuse `resolveVisitPurposeDetail()` yang sama), guard Create-nya ditulis terpisah tapi identik persis di `order_qr_create_handler.go` (2 file beda karena request/response shape Create member app vs QR Order beda, bukan karena logic sold out-nya beda).
 
 Tervalidasi lewat query manual ke database dev (`go build`/`go vet` bersih) — insert baris test ke `master_item_sold_out`, query JOIN mendeteksi item yang di-push, item lain & branch lain tetap `false`/tidak kena filter. Data test dibersihkan setelah verifikasi. Belum dites end-to-end lewat HTTP request beneran (header `X-App-Setting` terenkripsi, butuh app/tooling client buat generate).
+
+## Update (2026-10-15) — Sequence Subcategory
+
+`sequence` ditambahin di tiap `subcategories[]` — urutan tampil subcategory, port dari fitur yang sama yang lebih dulu dibuat di POS (`/api/master/menu-list`, lihat [`MENU LIST.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/POS/POS/MASTER/MENU%20LIST.md)) dan Kiosk (lihat [`KIOSK BRANCH VISIT PURPOSE DETAIL.md`](../../../../POS/posv1-laravel/DOKUMENTASI%20API/KIOSK/KIOSK%20BRANCH%20VISIT%20PURPOSE%20DETAIL.md) "Update 2026-10-15"). Sumbernya tabel ERP `master_pricelist_sub_category_sequence` (sudocore2) — beda dari 2 endpoint POS yang baca tabel lokal hasil sync, endpoint ini baca **langsung** ke tabel ERP-nya (sama pola dengan field lain di dokumen ini).
+
+**Implementasi** (`backend/modules/visitpurpose/visitpurpose_handler.go`, `resolveVisitPurposeDetail()`):
+- Query ke-3 (tree menu) ditambah `LEFT JOIN master_pricelist_sub_category_sequence mpscs ON mpscs.menu_template_id = mpd.menu_template_id AND mpscs.sub_category_id = misc.id` + kolom `mpscs.sequence AS sequence`. `LEFT JOIN` (bukan `JOIN`) — subcategory yang belum pernah diatur urutannya TETAP muncul di tree, `sequence`-nya `null`.
+- `ORDER BY` ditambah `(mpscs.sequence IS NULL) ASC, mpscs.sequence ASC` **DI DEPAN** `mic.name ASC, misc.name ASC, mi.item_name ASC` (bukan di belakang) — `null` ditaruh paling akhir, tie-break nama ASC seperti sebelumnya. Ditaruh di depan AMAN buat `buildMenuTree()` (yang merakit tree dengan cara "pecah grup begitu `category_id`/`subcategory_id` baris berikutnya beda dari baris sebelumnya") karena `sequence` itu nilai per `sub_category_id` (lewat join `mpscs.sub_category_id = misc.id`) — semua baris dalam 1 subcategory yang sama selalu dapat nilai `sequence` yang identik, jadi gak akan ke-interleave dengan subcategory lain walau diurutkan duluan.
+- `menuItemRow.Sequence` (`*int64`, nullable) dan `menuSubcategory.Sequence` (`*int64`, field baru di struct) — passthrough apa adanya dari row ke subcategory pas `buildMenuTree()` ngerakit tree, gak ada logic sort tambahan di Go (query udah ngurutin).
+
+**Versi QR Order otomatis kebawa** — `qrVisitPurposeDetail.Categories` reuse tipe `[]menuCategory` yang sama (sama alasan seperti `notes_menu`/`sold_out` di atas), gak ada perubahan kode tambahan yang perlu dilakuin di `visitpurpose_qr_handler.go`.
+
+Tervalidasi: `go build ./...` dan `go vet ./...` bersih di seluruh project. Belum ada verifikasi HTTP live baru di titik ini (perubahan reshape+query sederhana, konsisten pola sama dengan field lain yang sudah tervalidasi di dokumen ini — header `X-App-Setting` terenkripsi butuh app/tooling client buat generate, belum tersedia di sesi ini).
 
 ## Status
 
