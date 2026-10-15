@@ -41,6 +41,7 @@ type meResponse struct {
 	Email           *string   `json:"email" bun:"email"`
 	Gender          *string   `json:"gender" bun:"gender"`
 	BirthDate       *string   `json:"birth_date" bun:"birth_date"`
+	Description     *string   `json:"description" bun:"description"`
 	ProfilePhotoSrc *string   `json:"profile_photo_src" bun:"profile_photo_src"`
 	MemberSince     time.Time `json:"member_since" bun:"member_since"`
 	HasPin          bool      `json:"has_pin" bun:"has_pin"`
@@ -57,6 +58,7 @@ func fetchMe(ctx context.Context, db *bun.DB, memberID int64) (meResponse, error
 		SELECT
 			mm.id, mm.code, mm.name, mm.phone_number, mm.email, mm.gender,
 			to_char(mm.birth_date, 'YYYY-MM-DD') AS birth_date,
+			mm.description,
 			mm.profile_photo_src,
 			mm.created_at AS member_since,
 			EXISTS(SELECT 1 FROM mobile_member_pin mp WHERE mp.member_id = mm.id) AS has_pin
@@ -95,10 +97,11 @@ func (h *handler) Me(c fiber.Ctx) error {
 }
 
 type updateMeRequest struct {
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	Gender    string `json:"gender"`
-	BirthDate string `json:"birth_date"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Gender      string `json:"gender"`
+	BirthDate   string `json:"birth_date"`
+	Description string `json:"description"`
 }
 
 // dateOnlyLayout: format JSON "YYYY-MM-DD" polos, SAMA PERSIS konvensi sudocore2
@@ -197,14 +200,25 @@ func (h *handler) UpdateMe(c fiber.Ctx) error {
 		birthDatePtr = &req.BirthDate
 	}
 
+	// description BEDA dari email/gender/birth_date di atas -- bebas diedit berkali-kali dan
+	// boleh dikosongkan lagi (sama kayak name), BUKAN "sekali isi lalu terkunci". Jadi SELALU
+	// di-SET apa adanya (bukan COALESCE) -- description "" dikirim berarti benar-benar mau
+	// dikosongkan (NULL), bukan "skip, pertahankan nilai lama".
+	description := strings.TrimSpace(req.Description)
+	var descriptionPtr *string
+	if description != "" {
+		descriptionPtr = &description
+	}
+
 	if _, err := h.db.NewRaw(
 		`UPDATE master_member SET
 			name = ?,
 			email = COALESCE(?, email),
 			gender = COALESCE(?, gender),
-			birth_date = COALESCE(?, birth_date)
+			birth_date = COALESCE(?, birth_date),
+			description = ?
 		WHERE id = ?`,
-		name, emailPtr, genderPtr, birthDatePtr, memberID,
+		name, emailPtr, genderPtr, birthDatePtr, descriptionPtr, memberID,
 	).Exec(c.Context()); err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("failed to update profile"))
 	}

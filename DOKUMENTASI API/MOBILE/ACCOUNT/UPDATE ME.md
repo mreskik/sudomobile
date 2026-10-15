@@ -1,6 +1,6 @@
 # Account - Update Me
 
-Edit profil member yang lagi login. **`name`+`email`+`gender`+`birth_date`** (2026-10-13: `gender`/`birth_date` sempet dipisah jadi endpoint sendiri-sendiri, digabung lagi ke sini; `email` baru ditambah) — field lain (`profile_photo_src`) punya endpoint sendiri karena upload file, lihat [UPDATE PHOTO.md](UPDATE%20PHOTO.md).
+Edit profil member yang lagi login. **`name`+`email`+`gender`+`birth_date`+`description`** (2026-10-13: `gender`/`birth_date` sempet dipisah jadi endpoint sendiri-sendiri, digabung lagi ke sini; `email` baru ditambah; `description` ditambah 2026-10-15) — field lain (`profile_photo_src`) punya endpoint sendiri karena upload file, lihat [UPDATE PHOTO.md](UPDATE%20PHOTO.md).
 
 ```
 PUT /api/account/me
@@ -13,17 +13,19 @@ Content-Type: application/json
 ## Request
 
 ```json
-{ "name": "Budi Santoso", "email": "budi@example.com", "gender": "male", "birth_date": "1995-03-20" }
+{ "name": "Budi Santoso", "email": "budi@example.com", "gender": "male", "birth_date": "1995-03-20", "description": "Pelanggan VIP, suka duduk dekat jendela" }
 ```
 
 - `name` — **wajib**, gak boleh kosong (setelah di-trim spasi). **Selalu bisa diubah berkali-kali** — gak kena aturan "sekali isi" di bawah.
 - `email` — **opsional**: kirim alamat email valid buat set. Cuma divalidasi **format**-nya (pakai `net/mail` standar Go) — **TIDAK** ada validasi uniqueness lintas member (email boleh sama antar member, `phone_number` tetap identitas utama/unik).
 - `gender` — **opsional**: kirim `"male"`/`"female"` buat set.
 - `birth_date` — **opsional**: format wajib **`"YYYY-MM-DD"`** (bukan RFC3339/ISO datetime penuh) kalau diisi — kirim `"1995-03-20"`, **BUKAN** `"1995-03-20T00:00:00Z"`. Format salah ditolak dengan pesan jelas sebelum sampai ke query database.
+- `description` — **opsional**, catatan bebas tanpa validasi format. **BEDA** dari `email`/`gender`/`birth_date` di bawah — **bebas diedit berkali-kali, termasuk dikosongkan lagi** (sama kayak `name`, cuma `name` wajib non-kosong sedangkan `description` boleh `""`). Kirim `""` (atau gak sertain field-nya) = benar-benar **mengosongkan** (set `NULL`) — **bukan** "gak ada perubahan" seperti `email`/`gender`/`birth_date`.
 
-**⚠️ `email`/`gender`/`birth_date` cuma bisa diisi SEKALI** (2026-10-13) — begitu salah satu kolom ini **sudah terisi** di database (bukan `null`), request **apa pun** yang menyertakan field itu (nilai apa pun, **termasuk nilai yang sama persis** kayak yang udah tersimpan) akan **ditolak dengan error jelas**, sebelum sampai nyentuh database. Field yang masih `null` tetap bisa diisi normal.
+**⚠️ `email`/`gender`/`birth_date` cuma bisa diisi SEKALI** (2026-10-13) — begitu salah satu kolom ini **sudah terisi** di database (bukan `null`), request **apa pun** yang menyertakan field itu (nilai apa pun, **termasuk nilai yang sama persis** kayak yang udah tersimpan) akan **ditolak dengan error jelas**, sebelum sampai nyentuh database. Field yang masih `null` tetap bisa diisi normal. **`description` TIDAK kena aturan ini.**
 
-- `""` (string kosong) atau **gak sertain field-nya sama sekali** di body = "gak ada perubahan yang diminta" buat field itu — **selalu aman dikirim**, baik kolomnya masih `null` maupun udah terisi, **gak pernah** kena validasi "sudah terisi" di atas.
+- Untuk `email`/`gender`/`birth_date`: `""` (string kosong) atau **gak sertain field-nya sama sekali** di body = "gak ada perubahan yang diminta" buat field itu — **selalu aman dikirim**, baik kolomnya masih `null` maupun udah terisi, **gak pernah** kena validasi "sudah terisi" di atas.
+- Untuk `description`: `""` **selalu diproses** sebagai "kosongkan field ini" — tidak ada state "gak ada perubahan" seperti 3 field di atas.
 
 ## Response
 
@@ -41,6 +43,7 @@ Balikin data profil **terbaru** (bentuk sama kayak [ME.md](ME.md)) — biar app 
     "email": "budi@example.com",
     "gender": "male",
     "birth_date": "1995-03-20",
+    "description": "Pelanggan VIP, suka duduk dekat jendela",
     "profile_photo_src": null,
     "member_since": "2026-07-16T14:21:26+07:00",
     "has_pin": false
@@ -65,9 +68,9 @@ Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
 
 ## Catatan
 
-- `name`/`email`/`gender`/`birth_date` semuanya bisa diisi lewat endpoint ini, tapi **`email`/`gender`/`birth_date` masing-masing cuma sekali** — lihat aturan "sekali isi" di atas. `profile_photo_src` punya endpoint sendiri, lihat [UPDATE PHOTO.md](UPDATE%20PHOTO.md) (beda alur karena upload file, bukan form JSON biasa).
-- **Implementasi**: sebelum `UPDATE`, handler query dulu state `email`/`gender`/`birth_date` existing (`SELECT ... FROM master_member WHERE id = ?`). Kalau field yang mau diisi ternyata udah `NOT NULL` di database, request ditolak LANGSUNG (gak ada `UPDATE` yang jalan sama sekali) — bukan partial update sebagian field berhasil sebagian ditolak, satu error bikin seluruh request gagal.
-- Query `UPDATE` sendiri pakai `COALESCE(?, kolom)` per field — `""`/gak dikirim di-translate jadi `nil` (`*string`) di Go, ketemu `NULL` di SQL, `COALESCE` otomatis skip (pertahankan nilai lama). `name` TIDAK pakai `COALESCE` karena wajib selalu dikirim.
+- `name`/`email`/`gender`/`birth_date`/`description` semuanya bisa diisi lewat endpoint ini, tapi **`email`/`gender`/`birth_date` masing-masing cuma sekali** — lihat aturan "sekali isi" di atas. `description` **tidak** kena aturan itu (bebas berkali-kali). `profile_photo_src` punya endpoint sendiri, lihat [UPDATE PHOTO.md](UPDATE%20PHOTO.md) (beda alur karena upload file, bukan form JSON biasa).
+- **Implementasi**: sebelum `UPDATE`, handler query dulu state `email`/`gender`/`birth_date` existing (`SELECT ... FROM master_member WHERE id = ?`) — **`description` sengaja tidak ikut dicek di sini** karena tidak kena aturan "sekali isi". Kalau field yang mau diisi ternyata udah `NOT NULL` di database, request ditolak LANGSUNG (gak ada `UPDATE` yang jalan sama sekali) — bukan partial update sebagian field berhasil sebagian ditolak, satu error bikin seluruh request gagal.
+- Query `UPDATE` sendiri pakai `COALESCE(?, kolom)` per field untuk `email`/`gender`/`birth_date` — `""`/gak dikirim di-translate jadi `nil` (`*string`) di Go, ketemu `NULL` di SQL, `COALESCE` otomatis skip (pertahankan nilai lama). `name` TIDAK pakai `COALESCE` karena wajib selalu dikirim. `description` juga **TIDAK** pakai `COALESCE` (beda alasan dari `name`) — field ini SELALU di-SET apa adanya (termasuk ke `NULL` kalau dikirim kosong), karena "kosongkan lagi" itu valid untuk field ini.
 - **`email` sebelumnya gak ada cara editnya sama sekali** (dari mana pun) — selalu `null` sejak `register` (yang gak minta field ini). Mulai 2026-10-13 bisa diisi **sekali** lewat sini.
 - Kolom `master_member.birth_date` (`DATE`, nullable) sudah ada dari sebelumnya (migration `255_alter_table_master_member_add_birth_date.sql` di sudocore2) — dipakai bareng modul member ERP (`backend/modules/master/member`), bukan kolom baru khusus sudomobile.
 - **Tidak ada validasi umur/rentang tanggal** buat `birth_date` (misal menolak tanggal di masa depan, atau umur tidak realistis) — endpoint ini cuma validasi *format*, bukan *kewajaran nilai*. Sama halnya `email` — cuma validasi format, bukan verifikasi (tidak ada kirim link konfirmasi, dst).
@@ -78,5 +81,6 @@ Error yang mungkin balik (semua tetep HTTP `200`, `code: 100`):
 ## Tervalidasi
 
 - `go build`/`go vet` bersih.
+- **`description`** (2026-10-15) — ditambahkan ke `meResponse`/`updateMeRequest`/query `UPDATE`, `go build`/`go vet` bersih setelahnya. Query `SELECT` dites lewat `psql` (lihat [ME.md](ME.md) bagian Tervalidasi). Query `UPDATE` juga sudah dites langsung lewat `psql` (dalam transaksi, di-`ROLLBACK`, tidak ada data permanen yang berubah) untuk 2 skenario: set isi baru (berhasil, kolom ter-update) dan kosongkan lagi (`description = NULL`, berhasil jadi kosong) — keduanya sesuai ekspektasi.
 
 **⚠️ Belum tervalidasi lewat HTTP request / query live ke database** — belum sempat dicoba lewat request HTTP beneran. Update bagian ini kalau udah dites.
