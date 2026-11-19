@@ -365,11 +365,13 @@ func PromoUsedToday(ctx context.Context, db *bun.DB, promoID int64) (int64, erro
 // SENGAJA belum didukung (mekanismenya beda total, nambah baris item gratis bukan discount di
 // baris existing) -- balikin error biar item itu ditolak, bukan diam-diam di-skip.
 //
-// Percent dihitung dari DPP (harga net-of-tax), konsisten sama titik "diskon dipotong dari dpp"
-// di formula DPP-first (CalculateLine). Hasil discount DICLAMP max sebesar dpp itu sendiri
-// (gak boleh bikin net_dpp negatif) -- safety yang sengaja ditambah karena ini logic baru, beda
-// dari filosofi "niru bug POS apa adanya" yang dipakai buat ResolveItemTax dkk.
-func CalculatePromoDiscount(promo *Promo, dpp float64) (float64, error) {
+// Percent dihitung dari netPrice (harga net-of-tax, SEBELUM diskon -- ⚠️ 2026-11-19, parameter
+// ini SEBELUMNYA bernama "dpp" dengan makna LAMA; rename ikut swap pricing.LineCalculation,
+// lihat catatan lengkap di pricing.go), konsisten sama titik "diskon dipotong dari netPrice" di
+// formula DPP-first (CalculateLine). Hasil discount DICLAMP max sebesar netPrice itu sendiri
+// (gak boleh bikin dpp negatif) -- safety yang sengaja ditambah karena ini logic baru, beda dari
+// filosofi "niru bug POS apa adanya" yang dipakai buat ResolveItemTax dkk.
+func CalculatePromoDiscount(promo *Promo, netPrice float64) (float64, error) {
 	var discount float64
 	switch promo.Type {
 	case "rupiah":
@@ -386,7 +388,7 @@ func CalculatePromoDiscount(promo *Promo, dpp float64) (float64, error) {
 		if err != nil {
 			return 0, fmt.Errorf("invalid promo type_percent_rate: %w", err)
 		}
-		discount = dpp * rate / 100
+		discount = netPrice * rate / 100
 		if promo.TypePercentUseLimit {
 			limit, err := strconv.ParseFloat(promo.TypePercentLimitAmount, 64)
 			if err != nil {
@@ -402,8 +404,8 @@ func CalculatePromoDiscount(promo *Promo, dpp float64) (float64, error) {
 		return 0, fmt.Errorf("unknown promo type")
 	}
 
-	if discount > dpp {
-		discount = dpp
+	if discount > netPrice {
+		discount = netPrice
 	}
 	if discount < 0 {
 		discount = 0

@@ -126,13 +126,15 @@ func (h *handler) GetByBranch(c fiber.Ctx) error {
 	return c.JSON(res.Success().SetData(list))
 }
 
+// ⚠️ DPP/NetDPP RENAME (2026-11-19, BREAKING CHANGE API PUBLIK) -- lihat catatan lengkap di
+// pricing.LineCalculation (pricing.go).
 type bestSellerItemWithPrice struct {
 	bestSellerItemBase
 	Price     *string `json:"price" bun:"price"`
 	TaxType   *string `json:"tax_type" bun:"tax_type"`
 	TaxRate   *string `json:"tax_rate" bun:"tax_rate"`
+	NetPrice  string  `json:"net_price"`
 	DPP       string  `json:"dpp"`
-	NetDPP    string  `json:"net_dpp"`
 	TaxAmount string  `json:"tax_amount"`
 	Total     string  `json:"total"`
 }
@@ -168,6 +170,9 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 	if err != nil {
 		return c.JSON(res.SetCode(100).SetMessage("failed to fetch tax data"))
 	}
+	// serviceChargeRate (2026-11-19, BARU) -- sama pola order_handler.go, 1 rate level visit
+	// purpose buat semua item.
+	serviceChargeRate := taxRates.Rate(cfg.ServiceCharge)
 
 	// menu_id (mb_order_detail) = item_conversion_detail_id (2026-09-21, dibenerin) --
 	// resolve mi.item_name/image/use_tax lewat micd DULU (mod.menu_id -> micd.id -> mi.id),
@@ -203,13 +208,13 @@ func (h *handler) GetByVisitPurpose(c fiber.Ctx) error {
 			useTax = *rows[i].TaxType
 		}
 		_, taxRate := pricing.ResolveItemTax(useTax, cfg, taxRates)
-		calc, calcErr := pricing.CalculateLine(*rows[i].Price, taxRate, cfg.InclusivePrice, 0)
+		calc, calcErr := pricing.CalculateLine(*rows[i].Price, taxRate, serviceChargeRate, cfg.InclusivePrice, 0)
 		if calcErr != nil {
 			continue
 		}
 		rows[i].TaxRate = taxRate
+		rows[i].NetPrice = calc.NetPrice
 		rows[i].DPP = calc.DPP
-		rows[i].NetDPP = calc.NetDPP
 		rows[i].TaxAmount = calc.TaxAmount
 		rows[i].Total = calc.Total
 	}

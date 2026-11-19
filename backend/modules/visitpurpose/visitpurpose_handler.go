@@ -177,11 +177,14 @@ type visitPurposeDetail struct {
 //     level menu_template, bukan per item) -- makanya diletakin di level ATAS response
 //     (bukan diulang di tiap item kayak POS, sengaja disederhanakan karena nilainya emang sama
 //     semua).
-//   - service_charge -- tax_id level visit purpose, SENGAJA cuma diresolve jadi rate (info
-//     mentah), BELUM diaplikasikan ke perhitungan apapun -- riset ke kode POS gak nemu tempat
-//     service_charge ini beneran dipakai buat ngitung harga (kemungkinan gap yang juga ada di
-//     POS, atau logic-nya ada di tempat lain yang belum ketemu). Jangan diasumsikan "harga
-//     final udah termasuk service charge" dari response ini.
+//   - service_charge -- tax_id level visit purpose, di endpoint INI (GetDetail, preview menu)
+//     cuma diresolve jadi rate (info mentah), BELUM diaplikasikan ke harga per-item di response
+//     ini (endpoint ini murni nampilin menu+harga dasar, bukan hitung total order). ⚠️
+//     2026-11-19 (GAP DITUTUP di endpoint lain): rate yang sama ini SEKARANG beneran dipakai
+//     ngitung harga di order/calculate & order/create (pricing.CalculateLine(), lihat
+//     DOKUMENTASI API/MOBILE/ORDER/CALCULATE.md) -- endpoint GetDetail ini TETAP cuma preview
+//     menu, gak berubah perilakunya, cuma catatan "belum diaplikasikan" ini sekarang spesifik
+//     ke endpoint ini doang, bukan ke seluruh ekosistem lagi.
 func (h *handler) GetDetail(c fiber.Ctx) error {
 	res := helpers.NewResponse()
 

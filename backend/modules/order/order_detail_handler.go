@@ -52,8 +52,8 @@ type orderDetailPackageItem struct {
 	Price         string  `json:"price" bun:"price"`
 	TaxType       *string `json:"tax_type" bun:"tax_type"`
 	TaxRate       *string `json:"tax_rate" bun:"tax_rate"`
+	NetPrice      *string `json:"net_price" bun:"net_price"`
 	DPP           *string `json:"dpp" bun:"dpp"`
-	NetDPP        *string `json:"net_dpp" bun:"net_dpp"`
 	TaxAmount     *string `json:"tax_amount" bun:"tax_amount"`
 	Total         string  `json:"total" bun:"total"`
 }
@@ -72,8 +72,8 @@ type orderDetailItem struct {
 	Price           string                   `json:"price" bun:"price"`
 	TaxType         *string                  `json:"tax_type" bun:"tax_type"`
 	TaxRate         *string                  `json:"tax_rate" bun:"tax_rate"`
+	NetPrice        *string                  `json:"net_price" bun:"net_price"`
 	DPP             *string                  `json:"dpp" bun:"dpp"`
-	NetDPP          *string                  `json:"net_dpp" bun:"net_dpp"`
 	TaxAmount       *string                  `json:"tax_amount" bun:"tax_amount"`
 	Total           string                   `json:"total" bun:"total"`
 	PromoID         *int64                   `json:"promo_id" bun:"promo_id"`
@@ -183,7 +183,7 @@ func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status
 	items := []orderDetailItem{}
 	if err := db.NewRaw(`
 		SELECT mod.ulid, mod.menu_id, mi.item_name, mod.qty, mod.notes, mod.price, mod.tax_type, mod.tax_rate,
-			mod.dpp, mod.net_dpp, mod.tax_amount, mod.total, mod.promo_id, mod.discount_percent, mod.discount_amount
+			mod.net_price, mod.dpp, mod.tax_amount, mod.total, mod.promo_id, mod.discount_percent, mod.discount_amount
 		FROM mb_order_detail mod
 		LEFT JOIN master_item_conversion_detail micd ON micd.id = mod.menu_id
 		LEFT JOIN master_item mi ON mi.id = micd.item_id
@@ -202,7 +202,7 @@ func resolveOrderDetailCore(ctx context.Context, db *bun.DB, orderNumber, status
 		packages := []orderDetailPackageRow{}
 		if err := db.NewRaw(`
 			SELECT modp.mb_order_detail_ulid, mipd.package_group_id AS package_id, modp.menu_package_id, modp.menu_id, mi.item_name,
-				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.dpp, modp.net_dpp, modp.tax_amount, modp.total
+				modp.qty, modp.price, modp.tax_type, modp.tax_rate, modp.net_price, modp.dpp, modp.tax_amount, modp.total
 			FROM mb_order_detail_package modp
 			LEFT JOIN master_item_conversion_detail micd ON micd.id = modp.menu_id
 			LEFT JOIN master_item mi ON mi.id = micd.item_id

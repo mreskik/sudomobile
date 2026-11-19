@@ -35,7 +35,9 @@ GET /api/order/:order_number
     "sub_total": "125566.36",
     "total_discount": "0.00",
     "total_tax": "12556.64",
-    "total_billing": "138123.00",
+    "total_service_charge": "12556.64",
+    "order_fee": "10000.00",
+    "total_billing": "161235.64",
     "items": [
       {
         "menu_id": 109,
@@ -45,10 +47,13 @@ GET /api/order/:order_number
         "price": "123123.00",
         "tax_type": "pb1",
         "tax_rate": "10.00",
+        "net_price": "111930.00",
         "dpp": "111930.00",
-        "net_dpp": "111930.00",
         "tax_amount": "11193.00",
-        "total": "123123.00",
+        "service_charge_id": 12,
+        "service_charge_rate": "10.00",
+        "service_charge_amount": "11193.00",
+        "total": "134316.00",
         "promo_id": null,
         "discount_percent": "0.00",
         "discount_amount": "0.00",
@@ -62,10 +67,13 @@ GET /api/order/:order_number
             "price": "15000.00",
             "tax_type": "pb1",
             "tax_rate": "10.00",
+            "net_price": "13636.36",
             "dpp": "13636.36",
-            "net_dpp": "13636.36",
             "tax_amount": "1363.64",
-            "total": "15000.00"
+            "service_charge_id": 12,
+            "service_charge_rate": "10.00",
+            "service_charge_amount": "1363.64",
+            "total": "16363.64"
           }
         ]
       }
@@ -81,6 +89,8 @@ GET /api/order/:order_number
   }
 }
 ```
+
+**⚠️ BREAKING CHANGE (2026-11-19)**: `dpp`/`net_dpp` (lama) → `net_price`/`dpp` (baru, makna sama dengan [`CALCULATE.md`](CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19)). Field baru per item/package: `service_charge_id`/`service_charge_rate`/`service_charge_amount`. Field baru level order: `total_service_charge`/`order_fee`. Semua ini snapshot dari `mb_order`/`mb_order_detail`/`mb_order_detail_package` persis seperti saat order dibuat (bukan hasil hitung ulang) — lihat [`CREATE ORDER.md`](CREATE%20ORDER.md) buat sumber datanya.
 
 - `customer_name` — **BARU 2026-09-23**. Diisi dari `mb_order.order_name`, keisi cuma kalau `customer_name` dikirim pas [`create-order`](CREATE%20ORDER.md) (opsional). `null` kalau gak diisi/order lama sebelum field ini ada.
 - `items[]`/`items[].packages[]` — snapshot dari `mb_order_detail`/`mb_order_detail_package` (angka FINAL yang beneran kesimpen pas order dibuat, bukan hasil hitung ulang) — beda dari [`CALCULATE.md`](CALCULATE.md) yang ngitung on-the-fly.

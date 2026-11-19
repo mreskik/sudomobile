@@ -92,6 +92,10 @@ type menuRow struct {
 	UseTax            string `bun:"use_tax"`
 }
 
+// ⚠️ DPP/NetDPP RENAME (2026-11-19, BREAKING CHANGE API PUBLIK) -- lihat catatan lengkap di
+// pricing.LineCalculation (pricing.go). NetPrice (json "net_price", BARU) = sebelum diskon
+// (dulu field ini namanya DPP/"dpp"). DPP (json "dpp") TETAP namanya DPP, tapi NILAI/perannya
+// sekarang setelah diskon (dulu dipegang NetDPP/"net_dpp").
 type calculatedPackageItem struct {
 	MenuPackageID int64   `json:"menu_package_id"`
 	ItemID        int64   `json:"item_id"`
@@ -101,33 +105,42 @@ type calculatedPackageItem struct {
 	TaxType       string  `json:"tax_type"`
 	TaxID         *int64  `json:"tax_id"`
 	TaxRate       *string `json:"tax_rate"`
+	NetPrice      string  `json:"net_price"`
 	DPP           string  `json:"dpp"`
-	NetDPP        string  `json:"net_dpp"`
 	TaxAmount     string  `json:"tax_amount"`
-	Total         string  `json:"total"`
+	// ServiceChargeID/Rate/Amount (2026-11-19, BARU) -- sama visit purpose buat semua item,
+	// lihat catatan CalculateLine().
+	ServiceChargeID     *int64  `json:"service_charge_id"`
+	ServiceChargeRate   *string `json:"service_charge_rate"`
+	ServiceChargeAmount string  `json:"service_charge_amount"`
+	Total               string  `json:"total"`
 }
 
 type calculatedItem struct {
-	MenuID            int64                   `json:"menu_id"`
-	ItemName          string                  `json:"item_name"`
-	PricelistDetailID int64                   `json:"pricelist_detail_id"`
-	CategoryID        *int64                  `json:"category_id"`
-	SubcategoryID     *int64                  `json:"subcategory_id"`
-	Qty               int64                   `json:"qty"`
-	Notes             string                  `json:"notes"`
-	Price             string                  `json:"price"`
-	TaxType           string                  `json:"tax_type"`
-	TaxID             *int64                  `json:"tax_id"`
-	TaxRate           *string                 `json:"tax_rate"`
-	DPP               string                  `json:"dpp"`
-	NetDPP            string                  `json:"net_dpp"`
-	TaxAmount         string                  `json:"tax_amount"`
-	Total             string                  `json:"total"`
-	Packages          []calculatedPackageItem `json:"packages"`
-	PromoID           *int64                  `json:"promo_id"`
-	PromoName         *string                 `json:"promo_name"`
-	DiscountPercent   string                  `json:"discount_percent"`
-	DiscountAmount    string                  `json:"discount_amount"`
+	MenuID            int64   `json:"menu_id"`
+	ItemName          string  `json:"item_name"`
+	PricelistDetailID int64   `json:"pricelist_detail_id"`
+	CategoryID        *int64  `json:"category_id"`
+	SubcategoryID     *int64  `json:"subcategory_id"`
+	Qty               int64   `json:"qty"`
+	Notes             string  `json:"notes"`
+	Price             string  `json:"price"`
+	TaxType           string  `json:"tax_type"`
+	TaxID             *int64  `json:"tax_id"`
+	TaxRate           *string `json:"tax_rate"`
+	NetPrice          string  `json:"net_price"`
+	DPP               string  `json:"dpp"`
+	TaxAmount         string  `json:"tax_amount"`
+	// ServiceChargeID/Rate/Amount (2026-11-19, BARU) -- sama pola calculatedPackageItem di atas.
+	ServiceChargeID     *int64                  `json:"service_charge_id"`
+	ServiceChargeRate   *string                 `json:"service_charge_rate"`
+	ServiceChargeAmount string                  `json:"service_charge_amount"`
+	Total               string                  `json:"total"`
+	Packages            []calculatedPackageItem `json:"packages"`
+	PromoID             *int64                  `json:"promo_id"`
+	PromoName           *string                 `json:"promo_name"`
+	DiscountPercent     string                  `json:"discount_percent"`
+	DiscountAmount      string                  `json:"discount_amount"`
 }
 
 type calculateResult struct {
@@ -138,7 +151,13 @@ type calculateResult struct {
 	SubTotal         string           `json:"sub_total"`
 	TotalTax         string           `json:"total_tax"`
 	TotalDiscount    string           `json:"total_discount"`
-	TotalBilling     string           `json:"total_billing"`
+	// TotalServiceCharge/OrderFee (2026-11-19, BARU) -- gap lama (field ini sebelumnya SELALU
+	// 0, lihat catatan insertOrder()) sekarang diisi beneran. TotalServiceCharge = SUM
+	// ServiceChargeAmount semua item (termasuk sub-item package), OrderFee = apa adanya dari
+	// VisitPurposeConfig.OrderFee (nominal tetap per order, BUKAN per item -- keputusan user).
+	TotalServiceCharge string `json:"total_service_charge"`
+	OrderFee           string `json:"order_fee"`
+	TotalBilling       string `json:"total_billing"`
 	// PointRedeemAmount: SUM min_point_amount dari semua promo (UNIK per promo, bukan per baris
 	// item -- min_point_amount itu syarat level PROMO) yang dipakai & punya min_point_amount > 0.
 	// Dipotong LANGSUNG pas Create() (lihat catatan migration 231) -- BUKAN nunggu payment
@@ -211,6 +230,11 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	if err != nil {
 		return nil, "", err
 	}
+
+	// serviceChargeRate (2026-11-19, BARU) -- 1 rate level VISIT PURPOSE, SAMA buat semua item
+	// di order ini (beda dari tax yang per-item tergantung use_tax masing-masing item) --
+	// keputusan user, lihat catatan lengkap di pricing.CalculateLine().
+	serviceChargeRate := taxRates.Rate(cfg.ServiceCharge)
 
 	// masterItemIDs (2026-09-21, dibenerin) = master_item.id ASLI, diambil dari hasil resolve
 	// menuRows (row.MasterItemID) -- BUKAN menuIDs (item_conv id) langsung. FetchPackages()
@@ -288,11 +312,11 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		}
 
 		_, taxRate := pricing.ResolveItemTax(row.UseTax, cfg, taxRates)
-		calc, err := pricing.CalculateLine(row.Price, taxRate, cfg.InclusivePrice, 0)
+		calc, err := pricing.CalculateLine(row.Price, taxRate, serviceChargeRate, cfg.InclusivePrice, 0)
 		if err != nil {
 			return nil, "", err
 		}
-		preDiscountSubtotal += float64(itemReq.Qty) * mustFloat(calc.DPP)
+		preDiscountSubtotal += float64(itemReq.Qty) * mustFloat(calc.NetPrice)
 		pending = append(pending, pendingItem{req: itemReq, row: row, calc: calc})
 	}
 
@@ -363,7 +387,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		pointRedeemAmount += minPoint
 	}
 
-	subTotal, totalTax, totalBilling, totalDiscount := 0.0, 0.0, 0.0, 0.0
+	subTotal, totalTax, totalBilling, totalDiscount, totalServiceCharge := 0.0, 0.0, 0.0, 0.0, 0.0
 
 	for idx, p := range pending {
 		itemReq, row := p.req, p.row
@@ -375,7 +399,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		var promoName *string
 		if promo := assignedPromo[idx]; promo != nil {
 			var dErr error
-			discountAmount, dErr = pricing.CalculatePromoDiscount(promo, mustFloat(p.calc.DPP))
+			discountAmount, dErr = pricing.CalculatePromoDiscount(promo, mustFloat(p.calc.NetPrice))
 			if dErr != nil {
 				return nil, dErr.Error(), nil
 			}
@@ -390,37 +414,41 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 			}
 		}
 
-		calc, err := pricing.CalculateLine(row.Price, taxRate, cfg.InclusivePrice, discountAmount)
+		calc, err := pricing.CalculateLine(row.Price, taxRate, serviceChargeRate, cfg.InclusivePrice, discountAmount)
 		if err != nil {
 			return nil, "", err
 		}
 
 		calcItem := calculatedItem{
-			MenuID:            itemReq.MenuID,
-			ItemName:          row.ItemName,
-			PricelistDetailID: row.PricelistDetailID,
-			CategoryID:        row.CategoryID,
-			SubcategoryID:     row.SubcategoryID,
-			Qty:               itemReq.Qty,
-			Notes:             itemReq.Notes,
-			Price:             row.Price,
-			TaxType:           row.UseTax,
-			TaxID:             taxID,
-			TaxRate:           taxRate,
-			DPP:               calc.DPP,
-			NetDPP:            calc.NetDPP,
-			TaxAmount:         calc.TaxAmount,
-			Total:             calc.Total,
-			Packages:          []calculatedPackageItem{},
-			PromoID:           promoID,
-			PromoName:         promoName,
-			DiscountPercent:   discountPercent,
-			DiscountAmount:    formatFloat(discountAmount),
+			MenuID:              itemReq.MenuID,
+			ItemName:            row.ItemName,
+			PricelistDetailID:   row.PricelistDetailID,
+			CategoryID:          row.CategoryID,
+			SubcategoryID:       row.SubcategoryID,
+			Qty:                 itemReq.Qty,
+			Notes:               itemReq.Notes,
+			Price:               row.Price,
+			TaxType:             row.UseTax,
+			TaxID:               taxID,
+			TaxRate:             taxRate,
+			NetPrice:            calc.NetPrice,
+			DPP:                 calc.DPP,
+			TaxAmount:           calc.TaxAmount,
+			ServiceChargeID:     cfg.ServiceCharge,
+			ServiceChargeRate:   serviceChargeRate,
+			ServiceChargeAmount: calc.ServiceChargeAmount,
+			Total:               calc.Total,
+			Packages:            []calculatedPackageItem{},
+			PromoID:             promoID,
+			PromoName:           promoName,
+			DiscountPercent:     discountPercent,
+			DiscountAmount:      formatFloat(discountAmount),
 		}
 
 		qtyF := float64(itemReq.Qty)
 		subTotal += qtyF * mustFloat(calc.DPP)
 		totalTax += qtyF * mustFloat(calc.TaxAmount)
+		totalServiceCharge += qtyF * mustFloat(calc.ServiceChargeAmount)
 		totalBilling += qtyF * mustFloat(calc.Total)
 		totalDiscount += discountAmount
 
@@ -453,29 +481,33 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 				}
 				selectedQty += sel.Qty
 
-				pkgCalc, err := pricing.CalculateLine(subItem.Price, subItem.TaxRate, cfg.InclusivePrice, 0)
+				pkgCalc, err := pricing.CalculateLine(subItem.Price, subItem.TaxRate, serviceChargeRate, cfg.InclusivePrice, 0)
 				if err != nil {
 					return nil, "", err
 				}
 
 				calcItem.Packages = append(calcItem.Packages, calculatedPackageItem{
-					MenuPackageID: subItem.MenuPackageID,
-					ItemID:        subItem.ItemID,
-					ItemName:      subItem.ItemName,
-					Qty:           sel.Qty,
-					Price:         subItem.Price,
-					TaxType:       subItem.TaxType,
-					TaxID:         subItem.TaxID,
-					TaxRate:       subItem.TaxRate,
-					DPP:           pkgCalc.DPP,
-					NetDPP:        pkgCalc.NetDPP,
-					TaxAmount:     pkgCalc.TaxAmount,
-					Total:         pkgCalc.Total,
+					MenuPackageID:       subItem.MenuPackageID,
+					ItemID:              subItem.ItemID,
+					ItemName:            subItem.ItemName,
+					Qty:                 sel.Qty,
+					Price:               subItem.Price,
+					TaxType:             subItem.TaxType,
+					TaxID:               subItem.TaxID,
+					TaxRate:             subItem.TaxRate,
+					NetPrice:            pkgCalc.NetPrice,
+					DPP:                 pkgCalc.DPP,
+					TaxAmount:           pkgCalc.TaxAmount,
+					ServiceChargeID:     cfg.ServiceCharge,
+					ServiceChargeRate:   serviceChargeRate,
+					ServiceChargeAmount: pkgCalc.ServiceChargeAmount,
+					Total:               pkgCalc.Total,
 				})
 
 				pkgQtyF := qtyF * float64(sel.Qty)
 				subTotal += pkgQtyF * mustFloat(pkgCalc.DPP)
 				totalTax += pkgQtyF * mustFloat(pkgCalc.TaxAmount)
+				totalServiceCharge += pkgQtyF * mustFloat(pkgCalc.ServiceChargeAmount)
 				totalBilling += pkgQtyF * mustFloat(pkgCalc.Total)
 			}
 
@@ -487,9 +519,21 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		result.Items = append(result.Items, calcItem)
 	}
 
+	// OrderFee (2026-11-19, BARU) -- nominal TETAP per order dari VisitPurposeConfig.OrderFee
+	// (keputusan user: dipakai apa adanya, BUKAN per-item), ditambahkan LANGSUNG ke totalBilling
+	// di sini (BEDA dari service charge yang udah ketambah otomatis lewat calc.Total per baris
+	// item -- order_fee levelnya header doang, gak ada basis per-item buat dia).
+	orderFee := 0.0
+	if cfg.OrderFee != nil {
+		orderFee = mustFloat(*cfg.OrderFee)
+	}
+	totalBilling += orderFee
+
 	result.SubTotal = formatFloat(subTotal)
 	result.TotalTax = formatFloat(totalTax)
 	result.TotalDiscount = formatFloat(totalDiscount)
+	result.TotalServiceCharge = formatFloat(totalServiceCharge)
+	result.OrderFee = formatFloat(orderFee)
 	result.TotalBilling = formatFloat(totalBilling)
 	result.PointRedeemAmount = pointRedeemAmount
 

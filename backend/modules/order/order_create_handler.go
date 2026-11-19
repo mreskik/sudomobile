@@ -67,10 +67,20 @@ type createOrderResult struct {
 // cmd/migration/119_create_table_mb_order.sql buat catatan desainnya).
 //
 // order_type di-hardcode "takeaway", pax dibiarin NULL -- keputusan 2026-08-24 (mobile gak ada
-// dine-in). order_fee/service_charge/platform_fee/delivery_cost mb_order disimpen 0 -- SAMA
-// PERSIS gap yang udah didokumentasikan di Tahap 2 visit-purpose-detail (service_charge
-// diresolve tapi gak pernah diterapkan ke perhitungan manapun di seluruh ekosistem ini, bukan
-// hal baru yang kelewat di sini).
+// dine-in).
+//
+// ⚠️ order_fee/total_service_charge (2026-11-19, GAP DITUTUP) -- SEBELUMNYA selalu disimpen 0
+// (gap yang didokumentasikan di Tahap 2 visit-purpose-detail), SEKARANG beneran dihitung dari
+// result.OrderFee/result.TotalServiceCharge (calculateOrder(), lihat CalculateLine() di
+// pricing.go -- serviceChargeRate di-resolve dari VisitPurposeConfig.ServiceCharge, 1 rate
+// level visit purpose buat semua item, BEDA dari tax yang per-item). delivery_cost TETAP 0 --
+// gak ada sumber data sama sekali di sisi sudomobile (field ini di luar scope perbaikan ini).
+// ⚠️ mb_order.service_charge DI-RENAME jadi total_service_charge (migration 346, 2026-11-19) --
+// konsisten sama pos_order.total_service_charge, biar gak perlu manual-translate nama kolom
+// pas nanti mb_order di-pull jadi order POS.
+// ⚠️ platform_fee (2026-11-19) -- kolom ini SUDAH DIHAPUS TOTAL dari
+// mb_order (migration 345, konsisten sama pos_order/tr_order yang juga udah didrop
+// 2026-11-18) -- gak lagi disebut di INSERT manapun.
 //
 // Kalau step (2) gagal (service payment down/error), order TETAP kebuat (transaksi step 1 udah
 // commit, order itu valid) -- cuma payment.status di response bakal "failed" dan
@@ -248,11 +258,12 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 		_, err := tx.NewRaw(`
 			INSERT INTO mb_order (
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
-				order_fee, service_charge, platform_fee, delivery_cost,
+				order_fee, total_service_charge, delivery_cost,
 				sub_total, total_discount, total_tax, total_billing, point_redeem_amount,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', 0, 0, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
 		`, orderNumber, body.BranchID, memberIDParam, body.VisitPurposeID,
+			result.OrderFee, result.TotalServiceCharge,
 			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling, result.PointRedeemAmount,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID, nullIfEmpty(body.CustomerName),
 		).Exec(ctx)
@@ -317,11 +328,13 @@ func insertOrderItems(ctx context.Context, tx bun.Tx, orderNumber string, result
 			INSERT INTO mb_order_detail (
 				ulid, order_number, pricelist_detail_id, menu_id, category_id, subcategory_id,
 				qty, flag_inclusive_tax, price, tax_id, tax_type, tax_rate, tax_amount,
-				dpp, net_dpp, promo_id, discount_percent, discount_amount, total, notes
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				net_price, dpp, promo_id, discount_percent, discount_amount, total, notes,
+				service_charge_id, service_charge_rate, service_charge_amount
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, detailULID, orderNumber, item.PricelistDetailID, item.MenuID, item.CategoryID, item.SubcategoryID,
 			item.Qty, result.FlagInclusiveTax, item.Price, item.TaxID, nullIfEmpty(item.TaxType), taxRateOrZero(item.TaxRate), item.TaxAmount,
-			item.DPP, item.NetDPP, item.PromoID, item.DiscountPercent, item.DiscountAmount, item.Total, nullIfEmpty(item.Notes),
+			item.NetPrice, item.DPP, item.PromoID, item.DiscountPercent, item.DiscountAmount, item.Total, nullIfEmpty(item.Notes),
+			item.ServiceChargeID, taxRateOrZero(item.ServiceChargeRate), item.ServiceChargeAmount,
 		).Exec(ctx)
 		if err != nil {
 			return err
@@ -332,11 +345,13 @@ func insertOrderItems(ctx context.Context, tx bun.Tx, orderNumber string, result
 				INSERT INTO mb_order_detail_package (
 					ulid, mb_order_detail_ulid, menu_package_id, menu_id, category_id, subcategory_id,
 					qty, flag_inclusive_tax, price, tax_id, tax_type, tax_rate, tax_amount,
-					dpp, net_dpp, total, notes
-				) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+					net_price, dpp, total, notes,
+					service_charge_id, service_charge_rate, service_charge_amount
+				) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
 			`, generateULID(), detailULID, pkg.MenuPackageID, pkg.ItemID,
 				pkg.Qty, result.FlagInclusiveTax, pkg.Price, pkg.TaxID, nullIfEmpty(pkg.TaxType), taxRateOrZero(pkg.TaxRate), pkg.TaxAmount,
-				pkg.DPP, pkg.NetDPP, pkg.Total,
+				pkg.NetPrice, pkg.DPP, pkg.Total,
+				pkg.ServiceChargeID, taxRateOrZero(pkg.ServiceChargeRate), pkg.ServiceChargeAmount,
 			).Exec(ctx)
 			if err != nil {
 				return err

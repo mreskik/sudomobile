@@ -10,6 +10,14 @@ POST /api/order/calculate
 
 **Bug fix (2026-09-23)**: sama gap-nya kayak [`CREATE ORDER.md`](CREATE%20ORDER.md#bug-fix-2026-09-23) — grup route `/order/*` sempat gak punya middleware auth apa pun sejak digeser publik (2026-09-22), jadi token yang dikirim gak pernah ke-resolve (`member_id` selalu `0`). Fix: `middleware.OptionalAuth` dipasang ke `orderPublicRouter`, sekarang token valid beneran resolve `member_id`. **(⚠️ historis)** — sebelum revisi 2026-09-30, bug ini bikin SEMUA promo ditolak `"promo tidak bisa dipakai tanpa login"` walau client beneran login; sekarang efeknya lebih sempit (cuma promo `flag_required_member=true` yang kena kalau `member_id` gagal ke-resolve).
 
+**⚠️ BREAKING CHANGE (2026-11-19)** — gap Service Charge & Order Fee yang sebelumnya SELALU `0` sekarang beneran dihitung, DAN field harga per item di-rename:
+- `dpp`/`net_dpp` (lama) → **`net_price`/`dpp`** (baru). Makna TIDAK berubah, cuma nama kolom yang digeser: `net_price` = harga sebelum diskon (basis diskon persen), `dpp` = basis pajak (setelah diskon). Lihat bagian Formula di bawah buat detail lengkap kenapa.
+- Field baru per item: `service_charge_id` (FK `master_tax`, dari `master_branch_visit_purpose.service_charge` — level VISIT PURPOSE, SAMA buat semua item dalam 1 order, BUKAN per-item custom kayak POS), `service_charge_rate`, `service_charge_amount`.
+- `total` per item sekarang `dpp + tax_amount + service_charge_amount` (dulu cuma `dpp + tax_amount`, sebelum rename `net_dpp + tax_amount`).
+- Field baru level order: `total_service_charge` (SUM `service_charge_amount` semua baris, sudah di-scale `qty`), `order_fee` (nominal rupiah TETAP dari `master_branch_visit_purpose.order_fee`, BUKAN rate/persen, ditambahkan apa adanya ke `total_billing` — TIDAK di-scale apa pun).
+- `total_billing` sekarang ikut termasuk `total_service_charge` (lewat `total` per item) dan `order_fee` (ditambahkan manual di akhir).
+- `delivery_cost` TETAP `0` — belum ada sumber data di sisi sudomobile, di luar scope perbaikan ini.
+
 ## Request
 
 ```json
@@ -59,10 +67,13 @@ POST /api/order/calculate
         "tax_type": "pb1",
         "tax_id": 12,
         "tax_rate": "10.00",
-        "dpp": "111930.00",
-        "net_dpp": "100737.00",
+        "net_price": "111930.00",
+        "dpp": "100737.00",
         "tax_amount": "10073.70",
-        "total": "110810.70",
+        "service_charge_id": 12,
+        "service_charge_rate": "10.00",
+        "service_charge_amount": "10073.70",
+        "total": "120884.40",
         "promo_id": 23,
         "promo_name": "TEST PROMO CALC",
         "discount_amount": "11193.00",
@@ -72,7 +83,9 @@ POST /api/order/calculate
     "sub_total": "223860.00",
     "total_tax": "20147.40",
     "total_discount": "11193.00",
-    "total_billing": "221621.40",
+    "total_service_charge": "20147.40",
+    "order_fee": "10000.00",
+    "total_billing": "271915.80",
     "point_redeem_amount": 0
   }
 }
@@ -80,17 +93,23 @@ POST /api/order/calculate
 
 (Contoh di atas item qty 2 + promo, TANPA package, biar breakdown promo keliatan jelas. `packages[]` tetap bisa dipakai bareng `promo_id` di request yang sama — promo cuma mempengaruhi baris item utama, sub-item package gak ikut kena diskon, lihat contoh dengan package tanpa promo di [`GET VISIT PURPOSE DETAIL.md`](../MENU/GET%20VISIT%20PURPOSE%20DETAIL.md) atau di bagian "Tervalidasi live" sebelumnya di dokumen ini.)
 
-**Penting soal angka per item**: `dpp`/`net_dpp`/`tax_amount`/`total` itu **PER 1 UNIT** (belum dikali `qty`) — biar frontend gampang nampilin "harga satuan" di keranjang. `sub_total`/`total_tax`/`total_billing` di level ATAS itu udah di-scale `qty` (dan buat sub-item package, di-scale `qty` item induk **DIKALI** `qty` selection-nya — 1 porsi menu qty 2, tiap porsi ambil 1 varian, jadi varian-nya kehitung 2x juga).
+**Penting soal angka per item**: `net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` itu **PER 1 UNIT** (belum dikali `qty`) — biar frontend gampang nampilin "harga satuan" di keranjang. `sub_total`/`total_tax`/`total_service_charge`/`total_billing` di level ATAS itu udah di-scale `qty` (dan buat sub-item package, di-scale `qty` item induk **DIKALI** `qty` selection-nya — 1 porsi menu qty 2, tiap porsi ambil 1 varian, jadi varian-nya kehitung 2x juga). `order_fee` BEDA — nominal TETAP per order dari config, TIDAK di-scale apa pun.
 
 `point_redeem_amount` (2026-09-30) — SUM `min_point_amount` dari semua promo di `use_promo_ids` yang punya syarat poin (unik per promo, bukan per baris item). Di `Calculate()` (endpoint ini) field ini **cuma informatif** (preview "bakal kepotong segini") — poinnya **belum** kepotong beneran di sini, baca-only. Poin baru BENERAN dipotong kalau order-nya disubmit lewat `Create()` — lihat [`CREATE ORDER.md`](CREATE%20ORDER.md#potong-poin-buat-promo-bersyarat-poin-min_point_amount-2026-09-30) dan [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) (barrier #12).
 
-## Formula (DPP-first, replika PERSIS `OrderServices.php::RecalculateOrderTotals()` baris 753-767)
+## Formula (2026-11-19, replika PERSIS `OrderServices::CalculateLineItem()` PHP — POS)
 
-Urutan standar PPN: pajak dilepas dulu dari harga kalau `flag_inclusive_tax=true` (`dpp = price / (1 + tax_rate/100)`, kalau exclusive `dpp = price` apa adanya) → diskon dipotong dari `dpp` (`net_dpp = dpp - discount_amount` — `discount_amount` hasil resolve `promo_id`, lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md); `0` kalau item gak minta promo) → pajak final dihitung ULANG dari `net_dpp` (`tax_amount = net_dpp * tax_rate/100`), BUKAN dari harga awal. `total` per unit = `net_dpp + tax_amount`.
+**⚠️ Rename kolom (2026-11-19)**: `dpp` (lama, "sebelum diskon") → **`net_price`**. `net_dpp` (lama, "basis pajak setelah diskon") → **`dpp`**. Nama kolom `dpp` sekarang punya MAKNA BARU (basis pajak), BUKAN makna lama (sebelum diskon). Dilakukan biar konsisten sama penamaan POS (`OrderServices::CalculateLineItem()`) — `net_dpp` DIHAPUS total (DB maupun response), bukan di-rename jadi `net_dpp` baru.
+
+Urutan: harga dilepas dari pajak+service charge GABUNGAN kalau `flag_inclusive_tax=true` — `net_price = price / (1 + (tax_rate + service_charge_rate)/100)` (kalau exclusive, `net_price = price` apa adanya) → diskon dipotong dari `net_price` (`dpp = net_price - discount_amount` — `discount_amount` hasil resolve `promo_id`, lihat [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md); `0` kalau item gak minta promo) → pajak DAN service charge final dihitung ULANG dari `dpp` (`tax_amount = dpp * tax_rate/100`, `service_charge_amount = dpp * service_charge_rate/100`), BUKAN dari harga awal. `total` per unit = `dpp + tax_amount + service_charge_amount`.
+
+**Kunci buat inclusive price**: pembagi BUKAN cuma `tax_rate`, tapi GABUNGAN `tax_rate + service_charge_rate` — kalau cuma dibagi tax_rate doang, `net_price` yang dihasilkan salah buat visit purpose yang punya service charge aktif. Ini detail yang gampang terlewat kalau nge-port formula POS tanpa baca source aslinya.
+
+`service_charge_rate` diresolve dari `master_branch_visit_purpose.service_charge` (tax_id, FK `master_tax`) — SATU rate yang SAMA dipakai ke SEMUA item dalam 1 order (level visit purpose, BUKAN per-item custom kayak POS). `order_fee` dari `master_branch_visit_purpose.order_fee` — nominal rupiah TETAP, ditambahkan apa adanya ke `total_billing` di akhir, TIDAK lewat `CalculateLine()` (beda dari service charge yang otomatis masuk lewat `total` per item).
 
 Perhitungan pakai `float64` biasa (BUKAN decimal library) — niru PERSIS cara POS (PHP float) ngitung, termasuk potensi floating-point imprecision-nya, konsisten sama prinsip `ResolveItemTax()` yang niru PERSIS behavior POS apa adanya.
 
-Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`CalculateLine()`) — fungsi SATU-SATUNYA yang dipakai buat hitung harga/pajak di seluruh `sudomobile`, dipakai ulang juga oleh `GET VISIT PURPOSE DETAIL.md` (versi ringan, cuma `tax_amount` per unit tanpa breakdown `dpp`/`net_dpp` di response) dan dipakai lagi sama [`POST /api/order/create-order`](CREATE%20ORDER.md) — **BUKAN 2 implementasi terpisah**, biar harga preview di keranjang gak pernah beda sama harga final pas checkout.
+Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`CalculateLine()`) — fungsi SATU-SATUNYA yang dipakai buat hitung harga/pajak di seluruh `sudomobile`, dipakai ulang juga oleh `GET VISIT PURPOSE DETAIL.md` (versi ringan, cuma `tax_amount` per unit tanpa breakdown `net_price`/`dpp` di response — service charge BELUM relevan di situ, endpoint itu murni preview menu) dan dipakai lagi sama [`POST /api/order/create-order`](CREATE%20ORDER.md) — **BUKAN 2 implementasi terpisah**, biar harga preview di keranjang gak pernah beda sama harga final pas checkout.
 
 ## Validasi
 
@@ -118,7 +137,21 @@ Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`CalculateLine()`)
 
 Penjelasan lengkap mekanismenya (barrier/validasi, formula per tipe promo, kenapa beda dari POS, kenapa scope-nya terpisah dari POS) ada di dokumen sendiri: **[`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md)**.
 
+## Tervalidasi live (2026-11-19) — Service Charge & Order Fee
+
+Data real `branch_id=51`/`visit_purpose_id=7` (`master_branch_visit_purpose.id=218`: `service_charge`=tax_id `12` rate `10.00%`, `order_fee=10000.00`, `menu_template_id=9`), item `menu_id=99` ("MENU PASTRY", harga `123123.00`, `use_tax=pb1` rate `10.00%`, inclusive) qty 1, tanpa promo:
+
+- `net_price = 123123 / (1 + (10+10)/100) = 102602.50` (dibagi gabungan tax+SC 20%, BUKAN tax doang).
+- `dpp = 102602.50` (discount 0) → `tax_amount = 10260.25`, `service_charge_amount = 10260.25`.
+- `total` per item = `102602.50 + 10260.25 + 10260.25 = 123123.00` (balik ke harga asli, konsisten round-trip inclusive).
+- `total_service_charge = 10260.25`, `order_fee = 10000.00` (dari config, bukan `0` lagi).
+- `total_billing = 102602.50 + 10260.25 + 10260.25 + 10000 = 133123.00` — dicek manual, cocok.
+
+Diverifikasi juga end-to-end lewat `POST /qr-order/create-order` (jalur publik, reuse `calculateOrder()` yang sama) — hasil INSERT ke `mb_order` (`total_service_charge=10260.25`, `order_fee=10000.00`) dan `mb_order_detail` (`net_price`, `dpp`, `service_charge_id/rate/amount`) persis sama dengan hasil `Calculate()` di atas. Data test dihapus setelah verifikasi.
+
 ## Tervalidasi live (2026-08-24)
+
+**(⚠️ historis, pre-rename)** — hasil test di bawah pakai nama kolom LAMA (`dpp`/`net_dpp`) dan visit purpose TANPA service charge aktif, sebelum perubahan 2026-11-19 di atas. Dicatat tetap di sini sebagai jejak histori paket/promo, bukan field names yang masih aktif.
 
 Data real `branch_id=51`/`visit_purpose_id=7` (`menu_template_id=9`), item `109` (harga `123123.00`, `use_tax=pb1`, inclusive) qty 2 + package grup `18` (`min_qty=1`/`max_qty=21`) pilih sub-item `31` ("HOT OKINAWA LATTE", harga `15000.00`) qty 1:
 

@@ -123,6 +123,12 @@ lengkap di link di bawah), `package_list[]`/`menu_package_list[]`). Penjelasan t
 **lihat [`../MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`](../../MOBILE/MENU/GET%20VISIT%20PURPOSE%20DETAIL.md)**,
 sengaja gak diulang di sini biar gak ada 2 sumber kebenaran.
 
+**Catatan `service_charge`/`service_charge_rate`/`order_fee` (2026-11-19)**: field di endpoint INI
+tetap sekadar info mentah (endpoint ini cuma preview menu, gak ngitung total order) — tapi
+penerapannya ke kalkulasi order **sudah ditutup** di endpoint lain
+([`05 CALCULATE.md`](./05%20CALCULATE.md), [`06 CREATE ORDER.md`](./06%20CREATE%20ORDER.md)), sama
+persis seperti versi member app. Lihat link di atas buat detail lengkapnya.
+
 `notes_menu` otomatis kebawa **tanpa perubahan kode tambahan khusus QR Order** — `Categories`
 di response ini tipe datanya sama persis (`[]menuCategory`) dengan member app, isinya 100% hasil
 `resolveVisitPurposeDetail()` yang direuse (lihat "Catatan implementasi" di bawah).

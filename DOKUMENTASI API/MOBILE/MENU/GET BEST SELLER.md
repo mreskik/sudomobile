@@ -59,20 +59,29 @@ Makin sempit scope-nya, makin lengkap datanya — **harga cuma bisa dikasih tau 
       "menu_id": 109, "item_name": "MENU PASTRY", "image_src": "", "icon_src": null,
       "total_qty": 5, "total_orders": 1,
       "price": "123123.00", "tax_type": "pb1", "tax_rate": "10.00",
-      "dpp": "111930.00", "net_dpp": "111930.00", "tax_amount": "11193.00", "total": "123123.00"
+      "net_price": "111930.00", "dpp": "111930.00", "tax_amount": "11193.00",
+      "service_charge_id": null, "service_charge_rate": null, "service_charge_amount": "",
+      "total": "123123.00"
     },
     {
       "menu_id": 103, "item_name": "OKINAWA LATTE", "image_src": "", "icon_src": null,
       "total_qty": 2, "total_orders": 1,
-      "price": null, "tax_type": "pb1", "tax_rate": null, "dpp": "", "net_dpp": "", "tax_amount": "", "total": ""
+      "price": null, "tax_type": "pb1", "tax_rate": null, "net_price": "", "dpp": "", "tax_amount": "",
+      "service_charge_id": null, "service_charge_rate": null, "service_charge_amount": "", "total": ""
     }
   ]
 }
 ```
 
+**⚠️ BREAKING CHANGE (2026-11-19)**: `dpp`/`net_dpp` → `net_price`/`dpp` (makna sama dengan
+[`../ORDER/CALCULATE.md`](../ORDER/CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19)). Field baru
+`service_charge_id`/`service_charge_rate`/`service_charge_amount` — diresolve dari
+`master_branch_visit_purpose.service_charge` visit purpose yang di-scope endpoint ini, SAMA pola
+dengan `tax_rate`/`tax_amount` (ikut `null`/kosong kalau item-nya gak ketemu di `menu_template`).
+
 - `total_qty` — total qty terjual (`SUM(mb_order_detail.qty)`) dalam 30 hari terakhir.
 - `total_orders` — jumlah order UNIK yang mengandung item ini (`COUNT(DISTINCT order_number)`) — beda dari `total_qty` (1 order bisa beli item yang sama lebih dari 1 qty).
-- **`price`/`dpp`/`net_dpp`/`tax_amount`/`total` bisa `null`/kosong** walau item-nya tetap muncul di list — artinya item itu PERNAH laku (ada histori penjualan), tapi **SEKARANG udah gak ada** di `menu_template` branch+visit_purpose ini (mis. dihapus dari menu, atau `qr_order` di-nonaktifin). Item tetap ditampilin (histori penjualannya valid), cuma harganya gak bisa dikasih tau.
+- **`price`/`net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` bisa `null`/kosong** walau item-nya tetap muncul di list — artinya item itu PERNAH laku (ada histori penjualan), tapi **SEKARANG udah gak ada** di `menu_template` branch+visit_purpose ini (mis. dihapus dari menu, atau `qr_order` di-nonaktifin). Item tetap ditampilin (histori penjualannya valid), cuma harganya gak bisa dikasih tau.
 - Urutan: `total_qty DESC`.
 
 Gak ada penjualan yang match → `data: []`, bukan error.

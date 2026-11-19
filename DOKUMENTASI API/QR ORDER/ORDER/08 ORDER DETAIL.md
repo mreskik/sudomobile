@@ -46,6 +46,12 @@ yang sama). Ditambah:
 }
 ```
 
+**⚠️ BREAKING CHANGE (2026-11-19)**: sama persis perubahan di
+[`../MOBILE/ORDER/ORDER DETAIL.md`](../../MOBILE/ORDER/ORDER%20DETAIL.md) — `dpp`/`net_dpp` →
+`net_price`/`dpp`, field baru `service_charge_id`/`rate`/`amount` per item & package,
+`total_service_charge`/`order_fee` di level order — karena endpoint ini reuse
+`resolveOrderDetailCore()` yang sama.
+
 **Gak ada `table_number`** — dibuang dari scope Create Order v1 (lihat `CREATE ORDER.md`), jadi
 gak ada yang bisa di-echo di sini juga. `member_id` gak ada (selalu `NULL` di order QR). `branch_name` pakai `name_qr_order` fallback
 `name` (konsisten sama [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md)).

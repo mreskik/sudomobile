@@ -328,24 +328,40 @@ func ResolveNotesMenu(rows []NotesMenuRow, categoryID int64, subCategoryID *int6
 // LineCalculation: hasil CalculateLine() -- angka per 1 UNIT (belum dikali qty), string
 // 2 desimal (format numeric(20,2) yang dipakai di seluruh DB ini). Pemanggil yang ngali qty
 // buat dapetin subtotal baris.
+//
+// ⚠️ RENAME (2026-11-19, BREAKING CHANGE API PUBLIK) -- field ini SEBELUMNYA DPP/NetDPP
+// (json "dpp"/"net_dpp"), makna LAMA: dpp=sebelum diskon, net_dpp=setelah diskon. SWAP
+// mengikuti rename yang sudah terjadi di POS/sudocore2 (2026-11-18) -- istilah "DPP"
+// (Dasar Pengenaan Pajak) semestinya merujuk ke nilai SETELAH diskon (basis pajak yang
+// benar), bukan sebelum. NetPrice (json "net_price") = SEBELUM diskon (field BARU, dulu
+// namanya DPP/"dpp"), DPP (json "dpp") = SETELAH diskon (field ini TETAP namanya DPP di
+// struct Go, tapi NILAI/perannya sekarang yang dulu dipegang NetDPP). App mobile WAJIB
+// update ke nama field baru -- lihat DOKUMENTASI API/MOBILE/ORDER/CALCULATE.md.
 type LineCalculation struct {
-	DPP       string `json:"dpp"`
-	NetDPP    string `json:"net_dpp"`
-	TaxAmount string `json:"tax_amount"`
-	Total     string `json:"total"` // net_dpp + tax_amount, PER UNIT
+	NetPrice            string `json:"net_price"`
+	DPP                 string `json:"dpp"`
+	TaxAmount           string `json:"tax_amount"`
+	ServiceChargeAmount string `json:"service_charge_amount"` // BARU (2026-11-19)
+	Total               string `json:"total"`                 // dpp + tax_amount + service_charge_amount, PER UNIT
 }
 
-// CalculateLine: replika PERSIS OrderServices.php::RecalculateOrderTotals() baris 753-767
-// (netPrice/dpp/netDpp/taxAmount) -- urutan standar PPN: pajak dilepas dulu dari harga kalau
-// inclusive (dpp) -> diskon dipotong dari dpp (netDpp) -> pajak final dihitung ULANG dari
-// netDpp (taxAmount), BUKAN dari harga awal. discountAmount PER UNIT (bukan dikali qty),
-// sama persis semantik row.discount_amount di POS.
+// CalculateLine: replika PERSIS OrderServices.php::CalculateLineItem() (POS, 2026-11-18) --
+// urutan standar PPN: pajak+service charge dilepas dulu dari harga kalau inclusive (netPrice,
+// GABUNGAN taxRate+serviceChargeRate, bukan tax doang) -> diskon dipotong dari netPrice (dpp)
+// -> pajak & service charge final dihitung ULANG dari dpp (taxAmount/serviceChargeAmount),
+// BUKAN dari harga awal. discountAmount PER UNIT (bukan dikali qty), sama persis semantik
+// row.discount_amount di POS.
+//
+// serviceChargeRate (2026-11-19, BARU): rate level VISIT PURPOSE (sama utk semua item di 1
+// order, BEDA dari POS yang bisa custom per-item/per-baris) -- lihat
+// VisitPurposeConfig.ServiceCharge (pricing.go). nil = gak ada service charge, sama perlakuan
+// kayak taxRate nil.
 //
 // Sengaja pakai float64 (BUKAN decimal library) -- niru PERSIS cara POS (PHP float biasa)
 // ngitung, termasuk potensi floating-point imprecision-nya -- prinsip yang sama kayak
 // ResolveItemTax() yang niru PERSIS behavior POS apa adanya, bukan "dibenerin" jadi lebih
 // presisi dari aslinya.
-func CalculateLine(price string, taxRate *string, flagInclusiveTax bool, discountAmount float64) (LineCalculation, error) {
+func CalculateLine(price string, taxRate *string, serviceChargeRate *string, flagInclusiveTax bool, discountAmount float64) (LineCalculation, error) {
 	priceF, err := strconv.ParseFloat(price, 64)
 	if err != nil {
 		return LineCalculation{}, fmt.Errorf("invalid price: %w", err)
@@ -359,17 +375,27 @@ func CalculateLine(price string, taxRate *string, flagInclusiveTax bool, discoun
 		}
 	}
 
-	dpp := priceF
-	if flagInclusiveTax {
-		dpp = priceF / (1 + rateF/100)
+	scRateF := 0.0
+	if serviceChargeRate != nil {
+		scRateF, err = strconv.ParseFloat(*serviceChargeRate, 64)
+		if err != nil {
+			return LineCalculation{}, fmt.Errorf("invalid service_charge_rate: %w", err)
+		}
 	}
-	netDpp := dpp - discountAmount
-	taxAmount := netDpp * (rateF / 100)
+
+	netPrice := priceF
+	if flagInclusiveTax {
+		netPrice = priceF / (1 + (rateF+scRateF)/100)
+	}
+	dpp := netPrice - discountAmount
+	taxAmount := dpp * (rateF / 100)
+	serviceChargeAmount := dpp * (scRateF / 100)
 
 	return LineCalculation{
-		DPP:       strconv.FormatFloat(dpp, 'f', 2, 64),
-		NetDPP:    strconv.FormatFloat(netDpp, 'f', 2, 64),
-		TaxAmount: strconv.FormatFloat(taxAmount, 'f', 2, 64),
-		Total:     strconv.FormatFloat(netDpp+taxAmount, 'f', 2, 64),
+		NetPrice:            strconv.FormatFloat(netPrice, 'f', 2, 64),
+		DPP:                 strconv.FormatFloat(dpp, 'f', 2, 64),
+		TaxAmount:           strconv.FormatFloat(taxAmount, 'f', 2, 64),
+		ServiceChargeAmount: strconv.FormatFloat(serviceChargeAmount, 'f', 2, 64),
+		Total:               strconv.FormatFloat(dpp+taxAmount+serviceChargeAmount, 'f', 2, 64),
 	}, nil
 }

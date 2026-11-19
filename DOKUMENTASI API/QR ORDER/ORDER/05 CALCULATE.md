@@ -60,10 +60,14 @@ Body:
 
 Sama persis versi member app — lihat
 [`../MOBILE/ORDER/CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#response) buat contoh & penjelasan
-(`dpp`/`net_dpp`/`tax_amount`/`total` per 1 unit, `sub_total`/`total_tax`/`total_billing` udah
-di-scale qty, formula DPP-first). Tanpa `use_promo_ids`: `promo_id` selalu `null`, `promo_name`
-`null`, `discount_amount` `"0.00"`, `total_discount` `"0.00"`, `net_dpp == dpp`. Dengan promo
-publik yang lolos, field-field itu keisi sama persis pola member app.
+(`net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` per 1 unit,
+`sub_total`/`total_tax`/`total_service_charge`/`total_billing` udah di-scale qty, `order_fee`
+nominal tetap per order — **⚠️ BREAKING CHANGE 2026-11-19**, lihat
+[`CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19) buat detail
+rename `dpp`/`net_dpp` → `net_price`/`dpp` dan field baru service charge/order fee). Tanpa
+`use_promo_ids`: `promo_id` selalu `null`, `promo_name` `null`, `discount_amount` `"0.00"`,
+`total_discount` `"0.00"`, `net_price == dpp`. Dengan promo publik yang lolos, field-field itu
+keisi sama persis pola member app.
 
 ## Validasi
 
@@ -107,3 +111,12 @@ Endpoint ini baca-only, gak ada data yang perlu dibersihin.
 **Belum tervalidasi live buat revisi promo 2026-09-30** — logic-nya reuse 100% `calculateOrder()`
 yang udah tervalidasi di member app (`CALCULATE.md`), tapi kombinasi spesifik "QR Order + promo
 publik" belum dites end-to-end. Next step kalau butuh validasi tambahan.
+
+## Tervalidasi live (2026-11-19) — Service Charge & Order Fee
+
+`branch_code=SBE`/`company_code=SUDO`/`visit_purpose_code=ASD` (branch 51/visit purpose 7), item
+`menu_id=99` qty 1, tanpa promo → `total_service_charge: "10260.25"`, `order_fee: "10000.00"`,
+`total_billing: "133123.00"` — IDENTIK dengan hasil `POST /api/order/calculate` (member app) buat
+data yang sama, karena fungsi yang dipakai 100% sama (`calculateOrder()`). Lihat
+[`CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#tervalidasi-live-2026-11-19--service-charge--order-fee)
+buat breakdown angka lengkapnya.

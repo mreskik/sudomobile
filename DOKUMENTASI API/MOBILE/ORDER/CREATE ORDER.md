@@ -59,7 +59,9 @@ Sukses (payment gateway berhasil diminta):
     "sub_total": "111930.00",
     "total_tax": "11193.00",
     "total_discount": "0.00",
-    "total_billing": "123123.00",
+    "total_service_charge": "11193.00",
+    "order_fee": "10000.00",
+    "total_billing": "144316.00",
     "point_redeem_amount": 0,
     "items": [
       /* sama struktur kayak items di CALCULATE.md */
@@ -96,7 +98,9 @@ Retry payment request buat order yang statusnya `payment.status: failed` **belum
 1. **Hitung & simpan** — `calculateOrder()` (fungsi INTI yang sama dipakai `Calculate()`) resolve+validasi ulang semua (`branch_id`/`visit_purpose_id` → `menu_template_id`, item, package, promo — gak percaya apa pun dari client). Kalau lolos, generate `order_number` (format `"NO" + branch_code + timestamp(YmdHis) + 2 digit random` — lihat [PAYMENT STATUS.md](PAYMENT%20STATUS.md#format-order_number-dan-payment_number-2026-08-26) buat penjelasan lengkap format ini & pasangannya `payment_number`), lalu insert `mb_order` + `mb_order_detail`(+`_package`) dalam **1 transaksi** (rollback total kalau ada yang gagal).
 2. **Minta QR** — insert `mb_order_payment_request` (status `pending`) SEBELUM manggil service `payment`, baru `POST {PAYMENT_GATEWAY_ENDPOINT}/payment-gateway/qris` (`sudomobile/backend/modules/order/payment_gateway_client.go`, mirror `App\Services\PaymentGatewayServices::RequestPayment()` POS). Gagal → baris di-update `status: failed` (bukan nyangkut `pending` palsu), TAPI order dari langkah 1 gak di-rollback — itu udah order yang valid, cuma belum ada cara bayarnya buat sekarang.
 
-`order_type` di-hardcode `"takeaway"`, `pax` dibiarin `NULL` (keputusan 2026-08-24, mobile gak ada dine-in). `order_fee`/`service_charge`/`platform_fee`/`delivery_cost` di `mb_order` disimpen `0` — **SAMA PERSIS** gap yang udah didokumentasikan di [`GET VISIT PURPOSE DETAIL.md`](../MENU/GET%20VISIT%20PURPOSE%20DETAIL.md) (`service_charge` diresolve tapi gak pernah diterapkan ke perhitungan manapun di seluruh ekosistem ini — bukan hal baru yang kelewat di sini).
+`order_type` di-hardcode `"takeaway"`, `pax` dibiarin `NULL` (keputusan 2026-08-24, mobile gak ada dine-in).
+
+**⚠️ BREAKING CHANGE (2026-11-19)** — gap Service Charge & Order Fee DITUTUP (sebelumnya SELALU `0`, sekarang beneran dihitung & disimpan). Lihat [`CALCULATE.md`](CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19) buat detail lengkap perubahan field (`dpp`/`net_dpp` → `net_price`/`dpp`, field baru `service_charge_*`/`total_service_charge`/`order_fee`) — formula dan sumber data SAMA PERSIS, cuma dipakai juga di titik INSERT (`mb_order.total_service_charge`/`order_fee`, `mb_order_detail.service_charge_id`/`service_charge_rate`/`service_charge_amount`/`net_price`/`dpp`). `platform_fee` DIHAPUS total dari `mb_order` (kolom & field, bukan di-0-kan). `delivery_cost` TETAP `0` — di luar scope perbaikan ini, belum ada sumber data.
 
 ### Potong poin buat promo bersyarat poin (`min_point_amount`, 2026-09-30)
 
@@ -204,6 +208,10 @@ End-to-end pakai service `payment` beneran (Midtrans sandbox asli, dijalanin lok
 Semua data test (`mb_order`/`mb_order_detail`/`mb_order_payment_request`/`payment_gateway` di DB service `payment`/`master_payment_method_visit_purposes` scope sementara) dibersihkan total setelah verifikasi.
 
 **Regresi buat bug `tax_rate` (2026-08-25)**: `master_item.use_tax` item `109` (+ sub-item package `97`) di-flip sementara jadi string kosong (untaxed) → `create-order` yang sebelumnya bakal gagal (constraint violation), sekarang **sukses** — response `tax_rate: null` (makna API tetap kejaga), dicek langsung ke Postgres `mb_order_detail`/`mb_order_detail_package.tax_rate` beneran kesimpen `0.00` (bukan `NULL`, sesuai constraint kolom). `use_tax` kedua item di-revert balik ke `pb1` setelah verifikasi.
+
+## Tervalidasi live (2026-11-19) — Service Charge & Order Fee
+
+End-to-end lewat jalur `POST /qr-order/create-order` (publik, reuse `calculateOrder()`/`insertOrderItems()` yang SAMA PERSIS dipakai endpoint ini — lihat [`06 CREATE ORDER.md`](../../QR%20ORDER/ORDER/06%20CREATE%20ORDER.md)): `branch_id=51`/`visit_purpose_id=7`, item `menu_id=99` qty 1. Response: `total_service_charge="10260.25"`, `order_fee="10000.00"`, `total_billing="133123.00"`. Dicek LANGSUNG ke Postgres: `mb_order.total_service_charge`/`order_fee` cocok persis response, `mb_order_detail.net_price`/`dpp`/`service_charge_id`/`service_charge_rate`/`service_charge_amount` tersimpan sesuai kalkulasi (lihat [`CALCULATE.md`](CALCULATE.md#tervalidasi-live-2026-11-19--service-charge--order-fee) buat angka detailnya). Data test dihapus setelah verifikasi.
 
 ## Status
 

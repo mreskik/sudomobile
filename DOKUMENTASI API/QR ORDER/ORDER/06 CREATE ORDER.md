@@ -76,7 +76,9 @@ Sukses (payment gateway berhasil diminta):
     "sub_total": "111930.00",
     "total_tax": "11193.00",
     "total_discount": "0.00",
-    "total_billing": "123123.00",
+    "total_service_charge": "11193.00",
+    "order_fee": "10000.00",
+    "total_billing": "144316.00",
     "items": [
       {
         "menu_id": 109,
@@ -90,10 +92,13 @@ Sukses (payment gateway berhasil diminta):
         "tax_type": "pb1",
         "tax_id": 12,
         "tax_rate": "10.00",
+        "net_price": "111930.00",
         "dpp": "111930.00",
-        "net_dpp": "111930.00",
         "tax_amount": "11193.00",
-        "total": "123123.00",
+        "service_charge_id": 12,
+        "service_charge_rate": "10.00",
+        "service_charge_amount": "11193.00",
+        "total": "134316.00",
         "packages": [],
         "promo_id": null,
         "promo_name": null,
@@ -113,6 +118,12 @@ Sukses (payment gateway berhasil diminta):
   }
 }
 ```
+
+**⚠️ BREAKING CHANGE (2026-11-19)**: `dpp`/`net_dpp` → `net_price`/`dpp`, field baru
+`service_charge_id`/`rate`/`amount` per item, `total_service_charge`/`order_fee` di level order
+(sekarang beneran terisi, bukan `0` lagi) — SAMA PERSIS perubahan di
+[`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#%EF%B8%8F-breaking-change-2026-11-19),
+karena endpoint ini reuse fungsi yang sama 100%.
 
 `items[]`/`payment{}` **struktur & sumber datanya identik** versi member app — lihat
 [`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#response) (termasuk perilaku
@@ -142,7 +153,7 @@ diskon/DPP-first). **Belum ada contoh response promo QR Order yang beneran terva
 | `customer_phone_number` | opsional | opsional |
 | `order_type` | hardcode `'takeaway'` | diresolve dari `master_visit_purpose.kiosk_mode` (`dinein`/`takeaway`), fallback `'dinein'` kalau `NULL`/belum di-set — QR Order di meja itu dine-in secara alami, beda dari member app yang emang takeaway semua |
 | `branch_id`/`visit_purpose_id`/`company_id` | dari body + resolve | dari 4 kode query (`qrorder.Resolve()`, server-side, gak pernah dari body) |
-| `status`/pajak/`flag_inclusive_tax`/`pax`/fee | sama | sama (`pax` `NULL`, `order_fee`/`service_charge`/`platform_fee`/`delivery_cost` = `0` — gap yang sama kayak member app) |
+| `status`/pajak/`flag_inclusive_tax`/`pax`/fee | sama | sama (`pax` `NULL`, `order_fee`/`total_service_charge` **beneran dihitung dari config visit purpose sejak 2026-11-19** — gap DITUTUP, lihat [`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#%EF%B8%8F-breaking-change-2026-11-19); `platform_fee` DIHAPUS total; `delivery_cost` TETAP `0`) |
 
 `mb_order_detail`/`_package`/`mb_order_payment_request` — **identik**, insert lewat fungsi yang
 sama (`insertOrderItems()`), gak ada kolom baru.
@@ -350,3 +361,19 @@ REUSE fungsi member app apa adanya — `branch.IsOpenNow()`/`heartbeat.IsOnline(
 tervalidasi di konteks member app, dan sempet ketemu juga secara gak sengaja di awal sesi test ini
 sebelum jam operasional branch 51 dipinjam). `artisan mobile-order:pull` POS end-to-end (butuh
 dayshift/terminal worker/printer aktif, di luar lingkup perubahan sesi ini).
+
+## Tervalidasi live (2026-11-19) — Service Charge & Order Fee
+
+Branch 51 (`SBE`)/company `SUDO`/visit purpose 7 (`ASD`), item `menu_id=99` qty 1,
+`payment_method_id=1`, jam operasional & heartbeat branch 51 dipinjam sementara (dibalikin persis
+abis selesai, sama pola kayak tes 2026-09-17 di atas):
+
+- Sukses → `mb_order.total_service_charge="10260.25"`, `order_fee="10000.00"`,
+  `total_billing="133123.00"` — DICEK LANGSUNG ke Postgres, cocok persis sama response.
+- `mb_order_detail.net_price`/`dpp`/`service_charge_id`/`service_charge_rate`/
+  `service_charge_amount` tersimpan sesuai kalkulasi (lihat
+  [`05 CALCULATE.md`](./05%20CALCULATE.md#tervalidasi-live-2026-11-19--service-charge--order-fee)
+  buat breakdown angka). Placeholder SQL `INSERT` (`mb_order_detail`/`_package`, ditambah 3 kolom
+  service charge) terbukti jalan tanpa error "number of args"/"column does not exist".
+
+Data test (order + detail + payment_request) dihapus lagi setelah verifikasi.
