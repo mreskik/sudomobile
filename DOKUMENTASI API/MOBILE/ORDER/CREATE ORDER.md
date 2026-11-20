@@ -61,6 +61,8 @@ Sukses (payment gateway berhasil diminta):
     "total_discount": "0.00",
     "total_service_charge": "11193.00",
     "order_fee": "10000.00",
+    "grand_total": "144316.00",
+    "rounding_amount": "0.00",
     "total_billing": "144316.00",
     "point_redeem_amount": 0,
     "items": [
@@ -101,6 +103,8 @@ Retry payment request buat order yang statusnya `payment.status: failed` **belum
 `order_type` di-hardcode `"takeaway"`, `pax` dibiarin `NULL` (keputusan 2026-08-24, mobile gak ada dine-in).
 
 **⚠️ BREAKING CHANGE (2026-11-19)** — gap Service Charge & Order Fee DITUTUP (sebelumnya SELALU `0`, sekarang beneran dihitung & disimpan). Lihat [`CALCULATE.md`](CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19) buat detail lengkap perubahan field (`dpp`/`net_dpp` → `net_price`/`dpp`, field baru `service_charge_*`/`total_service_charge`/`order_fee`) — formula dan sumber data SAMA PERSIS, cuma dipakai juga di titik INSERT (`mb_order.total_service_charge`/`order_fee`, `mb_order_detail.service_charge_id`/`service_charge_rate`/`service_charge_amount`/`net_price`/`dpp`). `platform_fee` DIHAPUS total dari `mb_order` (kolom & field, bukan di-0-kan). `delivery_cost` TETAP `0` — di luar scope perbaikan ini, belum ada sumber data.
+
+**⚠️ BREAKING CHANGE lanjutan (2026-11-20) — Rounding**: field baru `grand_total`/`rounding_amount` ikut di-INSERT ke `mb_order` (`mb_order.grand_total`/`rounding_amount`, migration sudocore2 348) dan ikut muncul di response `Create()` — lihat [`CALCULATE.md`](CALCULATE.md#formula-rounding-2026-11-20) buat formula lengkap. `total_billing` yang diminta ke payment gateway (`requestPaymentForOrder()`) dan dipakai validasi saldo WALLET_PAYMENT (section di bawah) adalah nilai FINAL (`grand_total + rounding_amount`) — customer tetap bayar sesuai nilai yang sudah dibulatkan.
 
 ### Potong poin buat promo bersyarat poin (`min_point_amount`, 2026-09-30)
 
@@ -148,6 +152,8 @@ Response sukses (contoh):
     "sub_total": "20000.00",
     "total_tax": "0.00",
     "total_discount": "0.00",
+    "grand_total": "20000.00",
+    "rounding_amount": "0.00",
     "total_billing": "20000.00",
     "items": [ /* sama struktur kayak CALCULATE.md */ ],
     "payment": {

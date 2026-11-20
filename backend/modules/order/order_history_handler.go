@@ -10,9 +10,14 @@ import (
 )
 
 type orderHistoryItem struct {
-	OrderNumber       string  `json:"order_number" bun:"order_number"`
-	Status            string  `json:"status" bun:"status"`
-	OrderIn           string  `json:"order_in" bun:"order_in"`
+	OrderNumber string `json:"order_number" bun:"order_number"`
+	Status      string `json:"status" bun:"status"`
+	OrderIn     string `json:"order_in" bun:"order_in"`
+	// GrandTotal/RoundingAmount (2026-11-20, BARU) -- konsisten sama detail handler
+	// (order_detail_handler.go/order_qr_detail_handler.go), lihat catatan di calculateResult
+	// (order_handler.go) buat rantai nilai akhir order.
+	GrandTotal        string  `json:"grand_total" bun:"grand_total"`
+	RoundingAmount    string  `json:"rounding_amount" bun:"rounding_amount"`
 	TotalBilling      string  `json:"total_billing" bun:"total_billing"`
 	TotalItem         int64   `json:"total_item" bun:"total_item"`
 	BranchID          int64   `json:"branch_id" bun:"branch_id"`
@@ -48,7 +53,8 @@ func (h *handler) GetHistory(c fiber.Ctx) error {
 
 	query := `
 		SELECT
-			mo.order_number, mo.status, mo.created_at AS order_in, mo.total_billing,
+			mo.order_number, mo.status, mo.created_at AS order_in,
+			mo.grand_total, mo.rounding_amount, mo.total_billing,
 			COALESCE(item_count.total_item, 0) AS total_item,
 			mo.branch_id, mb.name AS branch_name,
 			mo.visit_purpose_id, mvp.name AS visit_purpose_name,

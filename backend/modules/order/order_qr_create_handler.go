@@ -35,16 +35,18 @@ type qrCreateOrderRequest struct {
 // ada blok company/branch/visit_purpose resolusi (beda dari rencana GET VISIT PURPOSE DETAIL
 // versi QR Order) karena client CREATE udah tau apa yang dia kirim, gak perlu di-echo balik.
 type qrCreateOrderResult struct {
-	OrderNumber   string           `json:"order_number"`
-	Status        string           `json:"status"`
-	SubTotal      string           `json:"sub_total"`
-	TotalTax      string           `json:"total_tax"`
-	TotalDiscount string           `json:"total_discount"`
-	TotalBilling  string           `json:"total_billing"`
-	Items         []calculatedItem `json:"items"`
-	Payment       paymentInfo      `json:"payment"`
-	OrderSource   string           `json:"order_source"`
-	OrderName     string           `json:"order_name"`
+	OrderNumber    string           `json:"order_number"`
+	Status         string           `json:"status"`
+	SubTotal       string           `json:"sub_total"`
+	TotalTax       string           `json:"total_tax"`
+	TotalDiscount  string           `json:"total_discount"`
+	GrandTotal     string           `json:"grand_total"`
+	RoundingAmount string           `json:"rounding_amount"`
+	TotalBilling   string           `json:"total_billing"`
+	Items          []calculatedItem `json:"items"`
+	Payment        paymentInfo      `json:"payment"`
+	OrderSource    string           `json:"order_source"`
+	OrderName      string           `json:"order_name"`
 }
 
 // QRHandler: interface TERPISAH dari Handler (member app) -- QR Order PUBLIK total, gak ada
@@ -165,16 +167,18 @@ func (h *qrHandler) Create(c fiber.Ctx) error {
 	payment := requestPaymentForOrder(ctx, h.db, orderNumber, qrCtx.BranchID, body.PaymentMethodID, paymentMethod.PaymentGatewayCode, calcResult.TotalBilling)
 
 	return c.JSON(res.Success().SetData(qrCreateOrderResult{
-		OrderNumber:   orderNumber,
-		Status:        "pending",
-		SubTotal:      calcResult.SubTotal,
-		TotalTax:      calcResult.TotalTax,
-		TotalDiscount: calcResult.TotalDiscount,
-		TotalBilling:  calcResult.TotalBilling,
-		Items:         calcResult.Items,
-		Payment:       payment,
-		OrderSource:   "qr",
-		OrderName:     body.OrderName,
+		OrderNumber:    orderNumber,
+		Status:         "pending",
+		SubTotal:       calcResult.SubTotal,
+		TotalTax:       calcResult.TotalTax,
+		TotalDiscount:  calcResult.TotalDiscount,
+		GrandTotal:     calcResult.GrandTotal,
+		RoundingAmount: calcResult.RoundingAmount,
+		TotalBilling:   calcResult.TotalBilling,
+		Items:          calcResult.Items,
+		Payment:        payment,
+		OrderSource:    "qr",
+		OrderName:      body.OrderName,
 	}))
 }
 
@@ -205,12 +209,12 @@ func insertQROrder(
 			INSERT INTO mb_order (
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, total_service_charge, delivery_cost,
-				sub_total, total_discount, total_tax, total_billing,
+				sub_total, total_discount, total_tax, grand_total, rounding_amount, total_billing,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name
-			) VALUES (?, ?, NULL, ?, ?, NULL, 'pending', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, 'qr', ?)
+			) VALUES (?, ?, NULL, ?, ?, NULL, 'pending', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'qr', ?)
 		`, orderNumber, branchID, visitPurposeID, orderType,
 			result.OrderFee, result.TotalServiceCharge,
-			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling,
+			result.SubTotal, result.TotalDiscount, result.TotalTax, result.GrandTotal, result.RoundingAmount, result.TotalBilling,
 			result.FlagInclusiveTax, customerPhone, companyID, orderName,
 		).Exec(ctx)
 		if err != nil {

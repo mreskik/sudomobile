@@ -97,13 +97,13 @@ func insertWalletPaidOrder(ctx context.Context, db *bun.DB, orderNumber, payment
 			INSERT INTO mb_order (
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, total_service_charge, delivery_cost,
-				sub_total, total_discount, total_tax, total_billing, point_redeem_amount,
+				sub_total, total_discount, total_tax, grand_total, rounding_amount, total_billing, point_redeem_amount,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name,
 				payment_number
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'paid', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?, ?)
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'paid', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?, ?)
 		`, orderNumber, body.BranchID, memberID, body.VisitPurposeID,
 			result.OrderFee, result.TotalServiceCharge,
-			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling, result.PointRedeemAmount,
+			result.SubTotal, result.TotalDiscount, result.TotalTax, result.GrandTotal, result.RoundingAmount, result.TotalBilling, result.PointRedeemAmount,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID, nullIfEmpty(body.CustomerName),
 			paymentNumber,
 		).Exec(ctx)

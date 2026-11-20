@@ -27,6 +27,8 @@ type qrOrderDetailHeader struct {
 	SubTotal            string  `bun:"sub_total"`
 	TotalDiscount       string  `bun:"total_discount"`
 	TotalTax            string  `bun:"total_tax"`
+	GrandTotal          string  `bun:"grand_total"`
+	RoundingAmount      string  `bun:"rounding_amount"`
 	TotalBilling        string  `bun:"total_billing"`
 	FlagInclusiveTax    bool    `bun:"flag_inclusive_tax"`
 	OrderName           *string `bun:"order_name"`
@@ -64,6 +66,8 @@ type qrOrderDetailResult struct {
 	SubTotal            string             `json:"sub_total"`
 	TotalDiscount       string             `json:"total_discount"`
 	TotalTax            string             `json:"total_tax"`
+	GrandTotal          string             `json:"grand_total"`
+	RoundingAmount      string             `json:"rounding_amount"`
 	TotalBilling        string             `json:"total_billing"`
 	Items               []orderDetailItem  `json:"items"`
 	Payment             orderDetailPayment `json:"payment"`
@@ -92,7 +96,7 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 	var header qrOrderDetailHeader
 	err = h.db.NewRaw(`
 		SELECT mo.order_source, mo.order_number, mo.status, mo.created_at, mo.sub_total, mo.total_discount,
-			mo.total_tax, mo.total_billing, mo.flag_inclusive_tax, mo.order_name, mo.customer_phone_number,
+			mo.total_tax, mo.grand_total, mo.rounding_amount, mo.total_billing, mo.flag_inclusive_tax, mo.order_name, mo.customer_phone_number,
 			mo.branch_id, COALESCE(NULLIF(mb.name_qr_order, ''), mb.name) AS branch_name, mb.address AS branch_address,
 			mo.visit_purpose_id, mvp.name AS visit_purpose_name
 		FROM mb_order mo
@@ -131,6 +135,8 @@ func (h *qrHandler) GetDetail(c fiber.Ctx) error {
 		SubTotal:            header.SubTotal,
 		TotalDiscount:       header.TotalDiscount,
 		TotalTax:            header.TotalTax,
+		GrandTotal:          header.GrandTotal,
+		RoundingAmount:      header.RoundingAmount,
 		TotalBilling:        header.TotalBilling,
 		Items:               items,
 		Payment:             payment,

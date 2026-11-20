@@ -78,6 +78,8 @@ Sukses (payment gateway berhasil diminta):
     "total_discount": "0.00",
     "total_service_charge": "11193.00",
     "order_fee": "10000.00",
+    "grand_total": "144316.00",
+    "rounding_amount": "0.00",
     "total_billing": "144316.00",
     "items": [
       {
@@ -124,6 +126,11 @@ Sukses (payment gateway berhasil diminta):
 (sekarang beneran terisi, bukan `0` lagi) — SAMA PERSIS perubahan di
 [`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#%EF%B8%8F-breaking-change-2026-11-19),
 karena endpoint ini reuse fungsi yang sama 100%.
+
+**⚠️ BREAKING CHANGE lanjutan (2026-11-20)**: field baru `grand_total`/`rounding_amount` ikut
+di-INSERT ke `mb_order` dan muncul di response — SAMA PERSIS perubahan di
+[`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#%EF%B8%8F-breaking-change-lanjutan-2026-11-20),
+lihat [`05 CALCULATE.md`](./05%20CALCULATE.md#formula-rounding-2026-11-20) buat formula lengkap.
 
 `items[]`/`payment{}` **struktur & sumber datanya identik** versi member app — lihat
 [`../MOBILE/ORDER/CREATE ORDER.md`](../../MOBILE/ORDER/CREATE%20ORDER.md#response) (termasuk perilaku

@@ -52,6 +52,12 @@ yang sama). Ditambah:
 `total_service_charge`/`order_fee` di level order — karena endpoint ini reuse
 `resolveOrderDetailCore()` yang sama.
 
+**⚠️ BREAKING CHANGE lanjutan (2026-11-20)**: field baru `grand_total`/`rounding_amount` di level
+order, sama persis perubahan di
+[`../MOBILE/ORDER/ORDER DETAIL.md`](../../MOBILE/ORDER/ORDER%20DETAIL.md#%EF%B8%8F-breaking-change-lanjutan-2026-11-20)
+— lihat [`05 CALCULATE.md`](./05%20CALCULATE.md#formula-rounding-2026-11-20) buat formula rounding
+lengkap.
+
 **Gak ada `table_number`** — dibuang dari scope Create Order v1 (lihat `CREATE ORDER.md`), jadi
 gak ada yang bisa di-echo di sini juga. `member_id` gak ada (selalu `NULL` di order QR). `branch_name` pakai `name_qr_order` fallback
 `name` (konsisten sama [`GET VISIT PURPOSE DETAIL.md`](./03%20GET%20VISIT%20PURPOSE%20DETAIL.md)).

@@ -157,7 +157,15 @@ type calculateResult struct {
 	// VisitPurposeConfig.OrderFee (nominal tetap per order, BUKAN per item -- keputusan user).
 	TotalServiceCharge string `json:"total_service_charge"`
 	OrderFee           string `json:"order_fee"`
-	TotalBilling       string `json:"total_billing"`
+	// GrandTotal/RoundingAmount (2026-11-20, BARU) -- rantai nilai akhir order, pola PERSIS
+	// POS lokal (tr_order, 2026-11-20): GrandTotal = akumulasi item+service_charge+order_fee
+	// SEBELUM dibulatkan, RoundingAmount = selisih pembulatan (dari master_branch_setting milik
+	// body.BranchID), TotalBilling = GrandTotal + RoundingAmount (nilai final, field LAMA tetap
+	// ada/tetap nama yang sama, cuma nilainya sekarang bisa beda dari GrandTotal kalau branch
+	// ini pakai rounding).
+	GrandTotal     string `json:"grand_total"`
+	RoundingAmount string `json:"rounding_amount"`
+	TotalBilling   string `json:"total_billing"`
 	// PointRedeemAmount: SUM min_point_amount dari semua promo (UNIK per promo, bukan per baris
 	// item -- min_point_amount itu syarat level PROMO) yang dipakai & punya min_point_amount > 0.
 	// Dipotong LANGSUNG pas Create() (lihat catatan migration 231) -- BUKAN nunggu payment
@@ -387,7 +395,9 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		pointRedeemAmount += minPoint
 	}
 
-	subTotal, totalTax, totalBilling, totalDiscount, totalServiceCharge := 0.0, 0.0, 0.0, 0.0, 0.0
+	// grandTotal (2026-11-20, RENAME dari totalBilling) -- nilai SEBELUM dibulatkan, lihat
+	// catatan GrandTotal di calculateResult.
+	subTotal, totalTax, grandTotal, totalDiscount, totalServiceCharge := 0.0, 0.0, 0.0, 0.0, 0.0
 
 	for idx, p := range pending {
 		itemReq, row := p.req, p.row
@@ -449,7 +459,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 		subTotal += qtyF * mustFloat(calc.DPP)
 		totalTax += qtyF * mustFloat(calc.TaxAmount)
 		totalServiceCharge += qtyF * mustFloat(calc.ServiceChargeAmount)
-		totalBilling += qtyF * mustFloat(calc.Total)
+		grandTotal += qtyF * mustFloat(calc.Total)
 		totalDiscount += discountAmount
 
 		// packages map key-nya master_item.id (row.MasterItemID), BUKAN itemReq.MenuID
@@ -508,7 +518,7 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 				subTotal += pkgQtyF * mustFloat(pkgCalc.DPP)
 				totalTax += pkgQtyF * mustFloat(pkgCalc.TaxAmount)
 				totalServiceCharge += pkgQtyF * mustFloat(pkgCalc.ServiceChargeAmount)
-				totalBilling += pkgQtyF * mustFloat(pkgCalc.Total)
+				grandTotal += pkgQtyF * mustFloat(pkgCalc.Total)
 			}
 
 			if selectedQty < group.MinQty || selectedQty > group.MaxQty {
@@ -520,20 +530,36 @@ func calculateOrder(ctx context.Context, db *bun.DB, body calculateRequest, memb
 	}
 
 	// OrderFee (2026-11-19, BARU) -- nominal TETAP per order dari VisitPurposeConfig.OrderFee
-	// (keputusan user: dipakai apa adanya, BUKAN per-item), ditambahkan LANGSUNG ke totalBilling
+	// (keputusan user: dipakai apa adanya, BUKAN per-item), ditambahkan LANGSUNG ke grandTotal
 	// di sini (BEDA dari service charge yang udah ketambah otomatis lewat calc.Total per baris
 	// item -- order_fee levelnya header doang, gak ada basis per-item buat dia).
 	orderFee := 0.0
 	if cfg.OrderFee != nil {
 		orderFee = mustFloat(*cfg.OrderFee)
 	}
-	totalBilling += orderFee
+	grandTotal += orderFee
+
+	// roundingAmount/totalBilling (2026-11-20, BARU) -- baca setting rounding branch ini
+	// (master_branch_setting), lihat pricing.CalculateRoundingAmount() buat detail rumus.
+	// totalBilling SEKARANG grandTotal + roundingAmount, BUKAN lagi akumulasi langsung dari
+	// baris item -- itu peran grandTotal sekarang.
+	roundingCfg, err := pricing.ResolveRoundingConfig(ctx, db, body.BranchID)
+	if err != nil {
+		return nil, "", err
+	}
+	roundingAmount, err := pricing.CalculateRoundingAmount(roundingCfg, grandTotal)
+	if err != nil {
+		return nil, "", err
+	}
+	totalBilling := grandTotal + roundingAmount
 
 	result.SubTotal = formatFloat(subTotal)
 	result.TotalTax = formatFloat(totalTax)
 	result.TotalDiscount = formatFloat(totalDiscount)
 	result.TotalServiceCharge = formatFloat(totalServiceCharge)
 	result.OrderFee = formatFloat(orderFee)
+	result.GrandTotal = formatFloat(grandTotal)
+	result.RoundingAmount = formatFloat(roundingAmount)
 	result.TotalBilling = formatFloat(totalBilling)
 	result.PointRedeemAmount = pointRedeemAmount
 

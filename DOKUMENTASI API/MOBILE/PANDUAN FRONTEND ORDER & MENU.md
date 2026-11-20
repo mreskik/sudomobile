@@ -77,9 +77,13 @@ Yang PERLU ditangani FE:
 
 ## 4. Angka di response `Calculate`/`Create` — per-unit vs total
 
-**Gampang salah kalau gak diperhatiin**: field di level `items[]` (`dpp`/`net_dpp`/`tax_amount`/`total`) itu **PER 1 UNIT** (belum dikali `qty`). Field di level ATAS (`sub_total`/`total_tax`/`total_discount`/`total_billing`) itu **udah di-scale**. Jangan kali `qty` manual ke field level atas (udah kekalikan), tapi WAJIB kali `qty` kalau mau nampilin subtotal per baris item dari field `items[].total`.
+**⚠️ Nama field di-rename (2026-11-19)** — `dpp`/`net_dpp` (lama) sekarang `net_price`/`dpp` (baru, makna sama, cuma nama digeser). Lihat [`ORDER/CALCULATE.md`](ORDER/CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19) buat detail lengkap.
+
+**Gampang salah kalau gak diperhatiin**: field di level `items[]` (`net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total`) itu **PER 1 UNIT** (belum dikali `qty`). Field di level ATAS (`sub_total`/`total_tax`/`total_discount`/`total_service_charge`/`grand_total`/`total_billing`) itu **udah di-scale**. Jangan kali `qty` manual ke field level atas (udah kekalikan), tapi WAJIB kali `qty` kalau mau nampilin subtotal per baris item dari field `items[].total`. `order_fee` BEDA — nominal TETAP per order, TIDAK di-scale apa pun.
 
 Package/sub-item malah **dikali qty item induk DIKALI qty selection-nya** — misal item qty 2, tiap porsi ambil 1 varian, varian itu ke-scale ×2 juga di total level atas (bukan ×1).
+
+**⚠️ Rounding (2026-11-20)** — `grand_total` = akumulasi item + `total_service_charge` + `order_fee`, SEBELUM dibulatkan (ini yang SEBELUMNYA namanya `total_billing`). `rounding_amount` = selisih pembulatan (tergantung setting rounding branch, bisa `0`). `total_billing` SEKARANG = `grand_total + rounding_amount` — field ini TETAP nilai final yang harus ditagih/ditampilkan ke customer sebagai "Total Bayar", bukan `grand_total`. Lihat [`ORDER/CALCULATE.md`](ORDER/CALCULATE.md#formula-rounding-2026-11-20) buat formula lengkap.
 
 ## 5. Status order (`mb_order.status`) — state machine
 

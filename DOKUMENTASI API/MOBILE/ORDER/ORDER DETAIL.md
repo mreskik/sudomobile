@@ -37,6 +37,8 @@ GET /api/order/:order_number
     "total_tax": "12556.64",
     "total_service_charge": "12556.64",
     "order_fee": "10000.00",
+    "grand_total": "161235.64",
+    "rounding_amount": "0.00",
     "total_billing": "161235.64",
     "items": [
       {
@@ -91,6 +93,8 @@ GET /api/order/:order_number
 ```
 
 **⚠️ BREAKING CHANGE (2026-11-19)**: `dpp`/`net_dpp` (lama) → `net_price`/`dpp` (baru, makna sama dengan [`CALCULATE.md`](CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19)). Field baru per item/package: `service_charge_id`/`service_charge_rate`/`service_charge_amount`. Field baru level order: `total_service_charge`/`order_fee`. Semua ini snapshot dari `mb_order`/`mb_order_detail`/`mb_order_detail_package` persis seperti saat order dibuat (bukan hasil hitung ulang) — lihat [`CREATE ORDER.md`](CREATE%20ORDER.md) buat sumber datanya.
+
+**⚠️ BREAKING CHANGE lanjutan (2026-11-20)**: field baru level order `grand_total`/`rounding_amount` (lihat [`CALCULATE.md`](CALCULATE.md#formula-rounding-2026-11-20) buat formula lengkap) — snapshot dari `mb_order.grand_total`/`rounding_amount`, sama perlakuan field lain di atas (persis seperti saat order dibuat).
 
 - `customer_name` — **BARU 2026-09-23**. Diisi dari `mb_order.order_name`, keisi cuma kalau `customer_name` dikirim pas [`create-order`](CREATE%20ORDER.md) (opsional). `null` kalau gak diisi/order lama sebelum field ini ada.
 - `items[]`/`items[].packages[]` — snapshot dari `mb_order_detail`/`mb_order_detail_package` (angka FINAL yang beneran kesimpen pas order dibuat, bukan hasil hitung ulang) — beda dari [`CALCULATE.md`](CALCULATE.md) yang ngitung on-the-fly.

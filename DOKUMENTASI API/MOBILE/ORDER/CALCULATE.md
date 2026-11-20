@@ -18,6 +18,8 @@ POST /api/order/calculate
 - `total_billing` sekarang ikut termasuk `total_service_charge` (lewat `total` per item) dan `order_fee` (ditambahkan manual di akhir).
 - `delivery_cost` TETAP `0` — belum ada sumber data di sisi sudomobile, di luar scope perbaikan ini.
 
+**⚠️ BREAKING CHANGE lanjutan (2026-11-20) — Rounding**: field baru level order `grand_total` (akumulasi item + `total_service_charge` + `order_fee`, SEBELUM dibulatkan — ini yang SEBELUMNYA namanya `total_billing`) dan `rounding_amount` (selisih pembulatan, dari setting `master_branch_setting.flag_rounding`/`rounding_nearst_value` milik `branch_id`). `total_billing` SEKARANG = `grand_total + rounding_amount` (field lama TETAP ADA, tetap berarti nilai final yang ditagih — cuma nilainya sekarang bisa beda dari `grand_total` kalau branch ini pakai rounding). Formula rounding ada di bagian bawah dokumen ini.
+
 ## Request
 
 ```json
@@ -85,6 +87,8 @@ POST /api/order/calculate
     "total_discount": "11193.00",
     "total_service_charge": "20147.40",
     "order_fee": "10000.00",
+    "grand_total": "271915.80",
+    "rounding_amount": "0.00",
     "total_billing": "271915.80",
     "point_redeem_amount": 0
   }
@@ -93,7 +97,7 @@ POST /api/order/calculate
 
 (Contoh di atas item qty 2 + promo, TANPA package, biar breakdown promo keliatan jelas. `packages[]` tetap bisa dipakai bareng `promo_id` di request yang sama — promo cuma mempengaruhi baris item utama, sub-item package gak ikut kena diskon, lihat contoh dengan package tanpa promo di [`GET VISIT PURPOSE DETAIL.md`](../MENU/GET%20VISIT%20PURPOSE%20DETAIL.md) atau di bagian "Tervalidasi live" sebelumnya di dokumen ini.)
 
-**Penting soal angka per item**: `net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` itu **PER 1 UNIT** (belum dikali `qty`) — biar frontend gampang nampilin "harga satuan" di keranjang. `sub_total`/`total_tax`/`total_service_charge`/`total_billing` di level ATAS itu udah di-scale `qty` (dan buat sub-item package, di-scale `qty` item induk **DIKALI** `qty` selection-nya — 1 porsi menu qty 2, tiap porsi ambil 1 varian, jadi varian-nya kehitung 2x juga). `order_fee` BEDA — nominal TETAP per order dari config, TIDAK di-scale apa pun.
+**Penting soal angka per item**: `net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` itu **PER 1 UNIT** (belum dikali `qty`) — biar frontend gampang nampilin "harga satuan" di keranjang. `sub_total`/`total_tax`/`total_service_charge`/`grand_total`/`total_billing` di level ATAS itu udah di-scale `qty` (dan buat sub-item package, di-scale `qty` item induk **DIKALI** `qty` selection-nya — 1 porsi menu qty 2, tiap porsi ambil 1 varian, jadi varian-nya kehitung 2x juga). `order_fee` BEDA — nominal TETAP per order dari config, TIDAK di-scale apa pun. `rounding_amount` BEDA lagi — bukan hasil scale item sama sekali, murni selisih pembulatan `grand_total` ke kelipatan `rounding_nearst_value` terdekat.
 
 `point_redeem_amount` (2026-09-30) — SUM `min_point_amount` dari semua promo di `use_promo_ids` yang punya syarat poin (unik per promo, bukan per baris item). Di `Calculate()` (endpoint ini) field ini **cuma informatif** (preview "bakal kepotong segini") — poinnya **belum** kepotong beneran di sini, baca-only. Poin baru BENERAN dipotong kalau order-nya disubmit lewat `Create()` — lihat [`CREATE ORDER.md`](CREATE%20ORDER.md#potong-poin-buat-promo-bersyarat-poin-min_point_amount-2026-09-30) dan [`KETENTUAN PROMO.md`](KETENTUAN%20PROMO.md) (barrier #12).
 
@@ -110,6 +114,18 @@ Urutan: harga dilepas dari pajak+service charge GABUNGAN kalau `flag_inclusive_t
 Perhitungan pakai `float64` biasa (BUKAN decimal library) — niru PERSIS cara POS (PHP float) ngitung, termasuk potensi floating-point imprecision-nya, konsisten sama prinsip `ResolveItemTax()` yang niru PERSIS behavior POS apa adanya.
 
 Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`CalculateLine()`) — fungsi SATU-SATUNYA yang dipakai buat hitung harga/pajak di seluruh `sudomobile`, dipakai ulang juga oleh `GET VISIT PURPOSE DETAIL.md` (versi ringan, cuma `tax_amount` per unit tanpa breakdown `net_price`/`dpp` di response — service charge BELUM relevan di situ, endpoint itu murni preview menu) dan dipakai lagi sama [`POST /api/order/create-order`](CREATE%20ORDER.md) — **BUKAN 2 implementasi terpisah**, biar harga preview di keranjang gak pernah beda sama harga final pas checkout.
+
+## Formula Rounding (2026-11-20)
+
+Setelah `grand_total` final (sudah termasuk semua item + `total_service_charge` + `order_fee`), `rounding_amount` dihitung dari setting `master_branch_setting` milik `branch_id` di request:
+
+```
+sisa = fmod(grand_total, rounding_nearst_value)
+rounding_amount = (flag_rounding == true DAN rounding_nearst_value > 0 DAN sisa != 0) ? rounding_nearst_value - sisa : 0
+total_billing = grand_total + rounding_amount
+```
+
+`flag_rounding`/`rounding_nearst_value` sudah lama ada sebagai setting (migration sudocore2 030), baru dipakai transaksi sejak perubahan ini. Mode pembulatan SELALU "ke kelipatan terdekat DI ATAS" — kolom `rounding_mode` ('up'/'down') di `master_branch_setting` **BELUM dipakai** (keputusan: 1 mode saja dulu, sama persis POS lokal — `OrderServices::RecalculateOrderTotals()`). Kalau `grand_total` sudah pas kelipatan `rounding_nearst_value` (sisa bagi `0`), `rounding_amount` TETAP `0` — tidak ikut nambah 1 kelipatan penuh. Diimplementasikan di `sudomobile/backend/pricing/pricing.go` (`ResolveRoundingConfig()`+`CalculateRoundingAmount()`), dipanggil dari `calculateOrder()` (`order_handler.go`) — SATU fungsi yang sama dipakai 4 endpoint (member app `Calculate`/`Create`, QR Order `Calculate`/`Create`), jadi rounding konsisten di semua jalur.
 
 ## Validasi
 

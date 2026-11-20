@@ -48,14 +48,16 @@ type paymentInfo struct {
 }
 
 type createOrderResult struct {
-	OrderNumber   string           `json:"order_number"`
-	Status        string           `json:"status"`
-	SubTotal      string           `json:"sub_total"`
-	TotalTax      string           `json:"total_tax"`
-	TotalDiscount string           `json:"total_discount"`
-	TotalBilling  string           `json:"total_billing"`
-	Items         []calculatedItem `json:"items"`
-	Payment       paymentInfo      `json:"payment"`
+	OrderNumber    string           `json:"order_number"`
+	Status         string           `json:"status"`
+	SubTotal       string           `json:"sub_total"`
+	TotalTax       string           `json:"total_tax"`
+	TotalDiscount  string           `json:"total_discount"`
+	GrandTotal     string           `json:"grand_total"`
+	RoundingAmount string           `json:"rounding_amount"`
+	TotalBilling   string           `json:"total_billing"`
+	Items          []calculatedItem `json:"items"`
+	Payment        paymentInfo      `json:"payment"`
 }
 
 // Create: SAVE ORDER beneran -- 1 call dari sisi client, tapi internal-nya 2 langkah backend
@@ -211,14 +213,16 @@ func (h *handler) Create(c fiber.Ctx) error {
 		}
 
 		return c.JSON(res.Success().SetData(createOrderResult{
-			OrderNumber:   orderNumber,
-			Status:        "paid",
-			SubTotal:      calcResult.SubTotal,
-			TotalTax:      calcResult.TotalTax,
-			TotalDiscount: calcResult.TotalDiscount,
-			TotalBilling:  calcResult.TotalBilling,
-			Items:         calcResult.Items,
-			Payment:       paymentInfo{Status: "paid"},
+			OrderNumber:    orderNumber,
+			Status:         "paid",
+			SubTotal:       calcResult.SubTotal,
+			TotalTax:       calcResult.TotalTax,
+			TotalDiscount:  calcResult.TotalDiscount,
+			GrandTotal:     calcResult.GrandTotal,
+			RoundingAmount: calcResult.RoundingAmount,
+			TotalBilling:   calcResult.TotalBilling,
+			Items:          calcResult.Items,
+			Payment:        paymentInfo{Status: "paid"},
 		}))
 	}
 
@@ -229,14 +233,16 @@ func (h *handler) Create(c fiber.Ctx) error {
 	payment := requestPaymentForOrder(ctx, h.db, orderNumber, body.BranchID, body.PaymentMethodID, paymentMethod.PaymentGatewayCode, calcResult.TotalBilling)
 
 	return c.JSON(res.Success().SetData(createOrderResult{
-		OrderNumber:   orderNumber,
-		Status:        "pending",
-		SubTotal:      calcResult.SubTotal,
-		TotalTax:      calcResult.TotalTax,
-		TotalDiscount: calcResult.TotalDiscount,
-		TotalBilling:  calcResult.TotalBilling,
-		Items:         calcResult.Items,
-		Payment:       payment,
+		OrderNumber:    orderNumber,
+		Status:         "pending",
+		SubTotal:       calcResult.SubTotal,
+		TotalTax:       calcResult.TotalTax,
+		TotalDiscount:  calcResult.TotalDiscount,
+		GrandTotal:     calcResult.GrandTotal,
+		RoundingAmount: calcResult.RoundingAmount,
+		TotalBilling:   calcResult.TotalBilling,
+		Items:          calcResult.Items,
+		Payment:        payment,
 	}))
 }
 
@@ -259,12 +265,12 @@ func insertOrder(ctx context.Context, db *bun.DB, orderNumber string, memberID i
 			INSERT INTO mb_order (
 				order_number, branch_id, member_id, visit_purpose_id, order_type, pax, status,
 				order_fee, total_service_charge, delivery_cost,
-				sub_total, total_discount, total_tax, total_billing, point_redeem_amount,
+				sub_total, total_discount, total_tax, grand_total, rounding_amount, total_billing, point_redeem_amount,
 				flag_inclusive_tax, customer_phone_number, company_id, order_source, order_name
-			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
+			) VALUES (?, ?, ?, ?, 'takeaway', NULL, 'pending', ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'mobile', ?)
 		`, orderNumber, body.BranchID, memberIDParam, body.VisitPurposeID,
 			result.OrderFee, result.TotalServiceCharge,
-			result.SubTotal, result.TotalDiscount, result.TotalTax, result.TotalBilling, result.PointRedeemAmount,
+			result.SubTotal, result.TotalDiscount, result.TotalTax, result.GrandTotal, result.RoundingAmount, result.TotalBilling, result.PointRedeemAmount,
 			result.FlagInclusiveTax, nullIfEmpty(body.CustomerPhoneNumber), companyID, nullIfEmpty(body.CustomerName),
 		).Exec(ctx)
 		if err != nil {

@@ -16,6 +16,7 @@ package pricing
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 
 	"github.com/uptrace/bun"
@@ -398,4 +399,57 @@ func CalculateLine(price string, taxRate *string, serviceChargeRate *string, fla
 		ServiceChargeAmount: strconv.FormatFloat(serviceChargeAmount, 'f', 2, 64),
 		Total:               strconv.FormatFloat(dpp+taxAmount+serviceChargeAmount, 'f', 2, 64),
 	}, nil
+}
+
+// RoundingConfig: hasil ResolveRoundingConfig() -- setting pembulatan nominal order milik 1
+// branch (master_branch_setting.flag_rounding/rounding_nearst_value, migration 030, sudah lama
+// ada sebagai SETTING tapi baru dipakai transaksi sejak 2026-11-20). RoundingMode kolomnya ada
+// ('up'/'down') TAPI SENGAJA BELUM dipakai di CalculateRoundingAmount() (keputusan user,
+// 2026-11-20) -- logic sekarang SELALU "bulatkan ke atas", sama pola POS lokal
+// (OrderServices.php::RecalculateOrderTotals()).
+type RoundingConfig struct {
+	FlagRounding        bool    `bun:"flag_rounding"`
+	RoundingNearstValue *string `bun:"rounding_nearst_value"`
+}
+
+// ResolveRoundingConfig: baca master_branch_setting milik 1 branch. nil (BUKAN error) kalau
+// branch-nya gak punya baris setting sama sekali -- pemanggil (CalculateRoundingAmount())
+// nil-safe, dianggap gak ada rounding.
+func ResolveRoundingConfig(ctx context.Context, db *bun.DB, branchID int) (*RoundingConfig, error) {
+	var cfg RoundingConfig
+	err := db.NewRaw(`
+		SELECT flag_rounding, rounding_nearst_value
+		FROM master_branch_setting
+		WHERE branch_id = ?
+	`, branchID).Scan(ctx, &cfg)
+	if err != nil {
+		if err.Error() == "sql: no rows in result set" {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &cfg, nil
+}
+
+// CalculateRoundingAmount: replika PERSIS OrderServices.php::RecalculateOrderTotals() (POS,
+// 2026-11-20) -- selisih pembulatan (grandTotal dibulatkan ke KELIPATAN TERDEKAT DI ATAS dari
+// rounding_nearst_value). 0 kalau flag_rounding false, rounding_nearst_value nil/<=0, ATAU
+// grandTotal sudah pas kelipatan (sisa bagi == 0 -- gak boleh ikut nambah 1 kelipatan penuh
+// kalau emang udah pas).
+func CalculateRoundingAmount(cfg *RoundingConfig, grandTotal float64) (float64, error) {
+	if cfg == nil || !cfg.FlagRounding || cfg.RoundingNearstValue == nil {
+		return 0, nil
+	}
+	nearst, err := strconv.ParseFloat(*cfg.RoundingNearstValue, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid rounding_nearst_value: %w", err)
+	}
+	if nearst <= 0 {
+		return 0, nil
+	}
+	sisa := math.Mod(grandTotal, nearst)
+	if sisa == 0 {
+		return 0, nil
+	}
+	return nearst - sisa, nil
 }

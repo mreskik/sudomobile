@@ -17,13 +17,17 @@ import (
 // (dulu lewat isMemberOwner()) -- order_number itu sendiri jadi kunci akses, siapa pun yang
 // tau/pegang nomornya berhak liat detailnya, endpoint ini publik (gak wajib Authorization).
 type orderDetailHeader struct {
-	MemberID            *int64  `bun:"member_id"`
-	OrderNumber         string  `bun:"order_number"`
-	Status              string  `bun:"status"`
-	CreatedAt           string  `bun:"created_at"`
-	SubTotal            string  `bun:"sub_total"`
-	TotalDiscount       string  `bun:"total_discount"`
-	TotalTax            string  `bun:"total_tax"`
+	MemberID      *int64 `bun:"member_id"`
+	OrderNumber   string `bun:"order_number"`
+	Status        string `bun:"status"`
+	CreatedAt     string `bun:"created_at"`
+	SubTotal      string `bun:"sub_total"`
+	TotalDiscount string `bun:"total_discount"`
+	TotalTax      string `bun:"total_tax"`
+	// GrandTotal/RoundingAmount (2026-11-20, BARU) -- lihat catatan di calculateResult
+	// (order_handler.go) buat rantai nilai akhir order.
+	GrandTotal          string  `bun:"grand_total"`
+	RoundingAmount      string  `bun:"rounding_amount"`
 	TotalBilling        string  `bun:"total_billing"`
 	FlagInclusiveTax    bool    `bun:"flag_inclusive_tax"`
 	CustomerPhoneNumber *string `bun:"customer_phone_number"`
@@ -105,6 +109,8 @@ type orderDetailResult struct {
 	SubTotal            string             `json:"sub_total"`
 	TotalDiscount       string             `json:"total_discount"`
 	TotalTax            string             `json:"total_tax"`
+	GrandTotal          string             `json:"grand_total"`
+	RoundingAmount      string             `json:"rounding_amount"`
 	TotalBilling        string             `json:"total_billing"`
 	Items               []orderDetailItem  `json:"items"`
 	Payment             orderDetailPayment `json:"payment"`
@@ -128,7 +134,7 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 	var header orderDetailHeader
 	err := h.db.NewRaw(`
 		SELECT mo.member_id, mo.order_number, mo.status, mo.created_at, mo.sub_total, mo.total_discount,
-			mo.total_tax, mo.total_billing, mo.flag_inclusive_tax, mo.customer_phone_number, mo.order_name,
+			mo.total_tax, mo.grand_total, mo.rounding_amount, mo.total_billing, mo.flag_inclusive_tax, mo.customer_phone_number, mo.order_name,
 			mo.branch_id, mb.name AS branch_name, mo.visit_purpose_id, mvp.name AS visit_purpose_name
 		FROM mb_order mo
 		LEFT JOIN master_branch mb ON mb.id = mo.branch_id
@@ -161,6 +167,8 @@ func (h *handler) GetDetail(c fiber.Ctx) error {
 		SubTotal:            header.SubTotal,
 		TotalDiscount:       header.TotalDiscount,
 		TotalTax:            header.TotalTax,
+		GrandTotal:          header.GrandTotal,
+		RoundingAmount:      header.RoundingAmount,
 		TotalBilling:        header.TotalBilling,
 		Items:               items,
 		Payment:             payment,

@@ -61,10 +61,14 @@ Body:
 Sama persis versi member app — lihat
 [`../MOBILE/ORDER/CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#response) buat contoh & penjelasan
 (`net_price`/`dpp`/`tax_amount`/`service_charge_amount`/`total` per 1 unit,
-`sub_total`/`total_tax`/`total_service_charge`/`total_billing` udah di-scale qty, `order_fee`
+`sub_total`/`total_tax`/`total_service_charge`/`grand_total`/`total_billing` udah di-scale qty, `order_fee`
 nominal tetap per order — **⚠️ BREAKING CHANGE 2026-11-19**, lihat
 [`CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#%EF%B8%8F-breaking-change-2026-11-19) buat detail
-rename `dpp`/`net_dpp` → `net_price`/`dpp` dan field baru service charge/order fee). Tanpa
+rename `dpp`/`net_dpp` → `net_price`/`dpp` dan field baru service charge/order fee). **⚠️ BREAKING
+CHANGE lanjutan 2026-11-20** — field baru `grand_total`/`rounding_amount`, lihat
+[`CALCULATE.md`](../../MOBILE/ORDER/CALCULATE.md#formula-rounding-2026-11-20) buat formula
+rounding lengkap (baca setting `master_branch_setting` milik branch dari 4 kode identitas di
+query). Tanpa
 `use_promo_ids`: `promo_id` selalu `null`, `promo_name` `null`, `discount_amount` `"0.00"`,
 `total_discount` `"0.00"`, `net_price == dpp`. Dengan promo publik yang lolos, field-field itu
 keisi sama persis pola member app.

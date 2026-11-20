@@ -10,6 +10,8 @@ GET /api/order/history
 
 **Belum termasuk list item per-order** — baru header, sama kayak preseden `KIOSK ORDER HISTORY.md`. Detail per-order (isi item) belum dibangun.
 
+**⚠️ BARU (2026-11-20)**: field `grand_total`/`rounding_amount` ditambahkan ke response, konsisten sama [`ORDER DETAIL.md`](ORDER%20DETAIL.md) yang sudah lebih dulu expose field ini — lihat [`CALCULATE.md`](CALCULATE.md#formula-rounding-2026-11-20) buat formula lengkap.
+
 ## Request
 
 Query param (semua opsional):
@@ -32,6 +34,8 @@ GET /api/order/history?date_from=2026-08-01&date_to=2026-08-25
       "order_number": "NOSBE2026082610004571",
       "status": "cancel",
       "order_in": "2026-08-25T09:29:37.412205+07:00",
+      "grand_total": "123123.00",
+      "rounding_amount": "0.00",
       "total_billing": "123123.00",
       "total_item": 1,
       "branch_id": 51,
@@ -56,7 +60,8 @@ Gak ada order yang match (termasuk member yang emang belum pernah order) → `da
 
 ```sql
 SELECT
-	mo.order_number, mo.status, mo.created_at AS order_in, mo.total_billing,
+	mo.order_number, mo.status, mo.created_at AS order_in,
+	mo.grand_total, mo.rounding_amount, mo.total_billing,
 	COALESCE(item_count.total_item, 0) AS total_item,
 	mo.branch_id, mb.name AS branch_name,
 	mo.visit_purpose_id, mvp.name AS visit_purpose_name,
