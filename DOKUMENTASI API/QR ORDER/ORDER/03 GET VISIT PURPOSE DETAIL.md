@@ -182,3 +182,7 @@ Create Order & Payment Status:
 
 Endpoint ini `GET` doang / baca-only, gak ada data yang perlu dibersihin setelahnya. `go
 build`/`go vet` bersih.
+
+## Update (2026-11-26) — Urutan `package_list[]` (sequence Package Group)
+
+Sama persis dengan versi mobile (`MOBILE/MENU/GET VISIT PURPOSE DETAIL.md`): endpoint ini memakai `resolveVisitPurposeDetail()` yang sama, jadi `package_list[]` per item diurutkan **`sequence` ASC lalu `id` ASC** (atur di ERP, `master_item_package_group.sequence`). Field `sequence` tidak dikirim, hanya urutan array-nya; nilai kembar jatuh ke `id`.

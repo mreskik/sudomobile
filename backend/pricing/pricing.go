@@ -218,7 +218,7 @@ func FetchPackages(ctx context.Context, db *bun.DB, itemIDs []int64, cfg *VisitP
 		JOIN master_item_conversion_detail submicd ON submicd.id = mipd.item_conversion_detail_id
 		JOIN master_item submi ON submi.id = submicd.item_id
 		WHERE mip.item_id IN (?)
-		ORDER BY mip.item_id ASC, mipg.id ASC, mipd.id ASC
+		ORDER BY mip.item_id ASC, mipg.sequence ASC, mipg.id ASC, mipd.id ASC
 	`, cfg.MenuTemplateID, bun.In(itemIDs)).Scan(ctx, &rows)
 	if err != nil {
 		return nil, err
@@ -403,9 +403,8 @@ func CalculateLine(price string, taxRate *string, serviceChargeRate *string, fla
 
 // RoundingConfig: hasil ResolveRoundingConfig() -- setting pembulatan nominal order milik 1
 // branch (master_branch_setting.flag_rounding/rounding_nearst_value, migration 030, sudah lama
-// ada sebagai SETTING tapi baru dipakai transaksi sejak 2026-11-20). RoundingMode kolomnya ada
-// ('up'/'down') TAPI SENGAJA BELUM dipakai di CalculateRoundingAmount() (keputusan user,
-// 2026-11-20) -- logic sekarang SELALU "bulatkan ke atas", sama pola POS lokal
+// ada sebagai SETTING tapi baru dipakai transaksi sejak 2026-11-20). Kolom rounding_mode ('up'/'down') TIDAK PERNAH dipakai dan sudah DIHAPUS (migration 354
+// sudocore2, 2026-11-24) -- logic SELALU "bulatkan ke atas" (keputusan user, 2026-11-20), sama pola POS lokal
 // (OrderServices.php::RecalculateOrderTotals()).
 type RoundingConfig struct {
 	FlagRounding        bool    `bun:"flag_rounding"`
