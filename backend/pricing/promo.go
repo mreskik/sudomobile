@@ -18,7 +18,7 @@ type Promo struct {
 	ID                     int64   `bun:"id"`
 	Name                   string  `bun:"name"`
 	Code                   string  `bun:"code"`
-	Type                   string  `bun:"type"` // rupiah / percent / freeitem
+	Type                   string  `bun:"type"` // rupiah / percent / freeitem / bill
 	TypeRupiahAmount       string  `bun:"type_rupiah_amount"`
 	TypePercentUseLimit    bool    `bun:"type_percent_use_limit"`
 	TypePercentRate        *string `bun:"type_percent_rate"`
@@ -147,7 +147,7 @@ func ResolvePromo(ctx context.Context, db *bun.DB, promoID int64, branchID, visi
 
 // ListEligiblePromos: SEMUA promo yang lolos eligibility struktural (barrier #1-8 di
 // KETENTUAN PROMO.md -- is_active/periode/channel/branch/visit_purpose/member_type/hari/jam),
-// buat 1 branch+visit_purpose+member. Tipe `freeitem` DIBUANG dari list (belum didukung sama
+// buat 1 branch+visit_purpose+member. Tipe `freeitem` dan `bill` DIBUANG dari list (belum didukung sama
 // sekali, nampilin promo yang bakal ditolak kalau dipakai cuma bikin bingung).
 //
 // SENGAJA gak filter berdasar min_buy_amount/min_point_amount/apply_limit_per_day di sini --
@@ -160,7 +160,7 @@ func ListEligiblePromos(ctx context.Context, db *bun.DB, branchID, visitPurposeI
 	promos := []Promo{}
 	query := fmt.Sprintf(`
 		SELECT %s FROM master_promo mp
-		WHERE %s AND mp.type != 'freeitem'
+		WHERE %s AND mp.type NOT IN ('freeitem', 'bill')
 		ORDER BY mp.name ASC
 	`, promoSelectColumns, promoEligibilityConditions)
 	err := db.NewRaw(query, branchID, visitPurposeID, memberTypeID, tierLevel).Scan(ctx, &promos)
@@ -400,6 +400,8 @@ func CalculatePromoDiscount(promo *Promo, netPrice float64) (float64, error) {
 		}
 	case "freeitem":
 		return 0, fmt.Errorf("freeitem promo type is not supported yet")
+	case "bill":
+		return 0, fmt.Errorf("bill promo type is not supported yet")
 	default:
 		return 0, fmt.Errorf("unknown promo type")
 	}

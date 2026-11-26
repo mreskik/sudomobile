@@ -31,7 +31,7 @@ Setiap promo yang diminta HARUS lolos SEMUA ini, atau request ditolak total (gak
 | 11 | Subtotal belanja (sebelum diskon apa pun) capai `min_buy_amount` | `master_promo.min_buy_amount` | `"belanja belum mencapai minimum buat promo {id}"` |
 | 12 | Saldo poin member capai `min_point_amount` | `master_promo.min_point_amount` vs `member_point_ledger` terbaru | `"poin member gak cukup buat promo {id}"` |
 | 13 | Belum kepake `apply_limit_per_day` kali hari ini | dihitung dari `mb_order_detail` (lihat "Beda dari POS") | `"promo {id} udah mencapai limit pemakaian hari ini"` |
-| 14 | Tipe promo bukan `freeitem` | `master_promo.type` | ditolak, `freeitem` belum didukung |
+| 14 | Tipe promo bukan `freeitem` / `bill` | `master_promo.type` | ditolak, `freeitem` dan `bill` belum didukung (`bill` ditambah 2026-11-26, pesan `bill promo type is not supported yet`) |
 
 Barrier #1-8 (termasuk #6b) di-cek dalam SATU query (`pricing.ResolvePromo()`), mirror persis filter yang dipakai `MasterController::GetPromoList()` di POS (channel di-hardcode `mobile_customer`, bukan `pos`) DITAMBAH barrier tier (`master_promo_tier`). Barrier #0b dicek TERPISAH dan LEBIH DULU (query ringan sendiri), barrier #9-14 dicek terpisah setelahnya.
 
@@ -65,6 +65,7 @@ Barrier #1-8 (termasuk #6b) di-cek dalam SATU query (`pricing.ResolvePromo()`), 
 | `rupiah` | `discount_amount = type_rupiah_amount` (flat, per unit) | ✅ didukung |
 | `percent` | `discount_amount = dpp × type_percent_rate / 100`, di-cap `type_percent_limit_amount` kalau `type_percent_use_limit = true` | ✅ didukung |
 | `freeitem` | nambah baris item gratis baru ke cart (bukan diskon di baris existing) | ❌ belum didukung, ditolak eksplisit |
+| `bill` (2026-11-26) | potongan nominal untuk seluruh tagihan (`type_bill_amount`, bukan per item) | ❌ belum didukung, dikecualikan dari List dan ditolak eksplisit di hitung diskon |
 
 `discount_amount` hasil hitungan DICLAMP maksimal sebesar `dpp` item itu sendiri (gak mungkin bikin harga jadi negatif) — ini logic pengaman BARU yang ditambahin di `sudomobile` (POS gak punya ini karena POS emang gak pernah ngitung diskon di backend sama sekali, lihat bagian bawah).
 
